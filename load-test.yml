@@ -1,0 +1,24 @@
+config:
+  target: "http://localhost:8080"
+  phases:
+    - duration: 60
+      arrivalRate: 10  # 10 requêtes par seconde
+  defaults:
+    headers:
+      Content-Type: "application/json"
+
+scenarios:
+  - name: "Test santé API"
+    flow:
+      - get:
+          url: "/api/health"
+          
+  - name: "Test envoi email"
+    flow:
+      - post:
+          url: "/api/emails/send"
+          json:
+            to: "test@example.com"
+            subject: "Test charge {{ $timestamp }}"
+            message: "Message de test {{ $timestamp }}"
+            destinator: "marketing"
