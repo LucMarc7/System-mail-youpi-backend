@@ -1,52 +1,24 @@
 {
   "name": "youpi-mail-backend",
   "version": "1.0.0",
-  "description": "Backend pour l'application Youpi Mail",
+  "description": "Backend pour l'application Youpi Mail avec SendGrid",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
-    "test": "jest --verbose",
-    "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage",
-    "test:email": "jest tests/email.send.test.js --verbose",
-    "test:auth": "jest tests/auth.google.test.js --verbose",
-    "test:templates": "jest tests/templates.test.js --verbose",
-    "docker:build": "docker build -t youpi-mail-api .",
-    "docker:run": "docker run -p 8080:8080 --env-file .env.production youpi-mail-api",
-    "pm2:start": "pm2 start ecosystem.config.js --env production",
-    "pm2:stop": "pm2 stop ecosystem.config.js",
-    "pm2:restart": "pm2 restart ecosystem.config.js",
-    "pm2:logs": "pm2 logs youpi-mail-api",
-    "pm2:monitor": "pm2 monit",
-    "deploy:setup": "pm2 deploy ecosystem.config.js production setup",
-    "deploy": "pm2 deploy ecosystem.config.js production"
+    "test": "jest --verbose"
   },
-  "keywords": [],
+  "keywords": ["email", "sendgrid", "api"],
   "author": "",
   "license": "ISC",
   "dependencies": {
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
-    "nodemailer": "^7.0.13"
+    "nodemailer": "^6.9.15"
   },
   "devDependencies": {
     "jest": "^29.7.0",
-    "nodemon": "^3.1.0",
-    "supertest": "^7.0.0"
-  },
-  "jest": {
-    "testEnvironment": "node",
-    "collectCoverageFrom": [
-      "src/**/*.js",
-      "!src/index.js"
-    ],
-    "coverageDirectory": "coverage",
-    "coverageReporters": [
-      "text",
-      "lcov",
-      "html"
-    ]
+    "nodemon": "^3.1.0"
   }
 }
