@@ -1,3 +1,5 @@
+const nodemailer = require('nodemailer');
+
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
@@ -38,13 +40,38 @@ app.use((req, res, next) => {
   next();
 });
 
+// ===== CONFIGURATION NODEMAILER POUR SENDGRID =====
+const createSendGridTransporter = () => {
+  // Vérification des variables d'environnement nécessaires
+  if (!process.env.SENDGRID_API_KEY) {
+    console.error('❌ ERREUR: SENDGRID_API_KEY non définie dans les variables d\'environnement');
+  }
+  if (!process.env.SMTP_SENDER) {
+    console.error('❌ ERREUR: SMTP_SENDER non définie dans les variables d\'environnement');
+  }
+  
+  return nodemailer.createTransport({
+    host: 'smtp.sendgrid.net', // Serveur SMTP de SendGrid
+    port: 587, // Port recommandé avec StartTLS
+    secure: false, // `false` pour le port 587, `true` pour le port 465
+    auth: {
+      user: "apikey", // Le nom d'utilisateur est TOUJOURS 'apikey' pour SendGrid
+      pass: process.env.SENDGRID_API_KEY // Votre clé API SendGrid
+    },
+    // Options de débogage
+    debug: process.env.NODE_ENV === 'development',
+    logger: process.env.NODE_ENV === 'development'
+  });
+};
+
 // ===== ROUTE RACINE (CRITIQUE POUR RENDER) =====
 app.get("/", (req, res) => {
   res.json({
-    message: "🚀 Youpi Mail API",
+    message: "🚀 Youpi Mail API avec SendGrid",
     status: "online",
     version: "1.0.0",
     timestamp: new Date().toISOString(),
+    emailProvider: "SendGrid",
     endpoints: {
       health: "GET /api/health",
       register: "POST /api/auth/register",
@@ -67,6 +94,7 @@ app.get("/api/health", (req, res) => {
     timestamp: new Date().toISOString(),
     service: "Youpi Mail Backend",
     uptime: process.uptime(),
+    emailProvider: "SendGrid",
     memory: {
       heapUsed: `${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2)} MB`,
       heapTotal: `${(process.memoryUsage().heapTotal / 1024 / 1024).toFixed(2)} MB`
@@ -283,8 +311,8 @@ app.get("/api/templates/preview", (req, res) => {
   }
 });
 
-// 6. Route d'envoi d'email - CORRIGÉE ET COMPLÈTE
-app.post("/api/emails/send", (req, res) => {
+// 6. Route d'envoi d'email RÉEL avec SendGrid - NOUVELLE VERSION
+app.post("/api/emails/send", async (req, res) => {
   try {
     const { 
       to, 
@@ -296,24 +324,17 @@ app.post("/api/emails/send", (req, res) => {
     } = req.body;
 
     console.log("=".repeat(50));
-    console.log("📧 NOUVEAU DEMANDE D'ENVOI D'EMAIL");
+    console.log("📧 DEMANDE D'ENVOI RÉEL VIA SENDGRID");
     console.log("=".repeat(50));
     
     // Log détaillé de toutes les données reçues
     console.log("📋 DONNÉES REÇUES:");
-    console.log("- userEmail (expéditeur):", userEmail || "NON FOURNI ⚠️");
+    console.log("- userEmail (expéditeur pour reply-to):", userEmail || "NON FOURNI ⚠️");
     console.log("- to (destinataire):", to || "NON FOURNI");
     console.log("- subject:", subject || "NON FOURNI");
     console.log("- message length:", message ? message.length : 0, "caractères");
     console.log("- destinator:", destinator);
     console.log("- attachments:", attachments.length, "fichier(s)");
-    
-    if (attachments.length > 0) {
-      console.log("  Détails des pièces jointes:");
-      attachments.forEach((att, idx) => {
-        console.log(`  ${idx + 1}. ${att.name} (${att.type}) - ${att.content ? att.content.length : 0} chars base64`);
-      });
-    }
     console.log("=".repeat(50));
 
     // VALIDATION DES DONNÉES
@@ -348,47 +369,114 @@ app.post("/api/emails/send", (req, res) => {
     }
 
     console.log("✅ VALIDATION RÉUSSIE");
-    console.log(`📤 Simulation envoi: ${userEmail} → ${to}`);
 
-    // Simulation d'un envoi réel avec délai
-    setTimeout(() => {
-      const messageId = `email_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      const timestamp = new Date().toISOString();
-      
-      const responseData = {
-        success: true,
-        messageId: messageId,
-        timestamp: timestamp,
-        details: `Email envoyé avec succès de "${userEmail}" à "${to}"`,
-        from: userEmail,
-        to: to,
-        subject: subject,
-        destinator: destinator,
-        messagePreview: message.length > 100 ? message.substring(0, 100) + "..." : message,
-        attachmentsCount: attachments.length,
-        simulated: true,
-        serverInfo: {
-          name: "Youpi Mail API",
-          version: "1.0.0",
-          environment: process.env.NODE_ENV || 'development'
-        }
-      };
+    // Vérification des variables d'environnement SendGrid
+    if (!process.env.SENDGRID_API_KEY) {
+      throw new Error("SENDGRID_API_KEY non définie dans les variables d'environnement");
+    }
+    if (!process.env.SMTP_SENDER) {
+      throw new Error("SMTP_SENDER non définie dans les variables d'environnement");
+    }
 
-      console.log("✅ EMAIL ENVOYÉ (SIMULATION)");
-      console.log("📨 RÉPONSE:", JSON.stringify(responseData, null, 2));
-      console.log("=".repeat(50));
+    const senderEmail = process.env.SMTP_SENDER;
+    console.log(`📤 Envoi via SendGrid: ${senderEmail} → ${to} (reply-to: ${userEmail})`);
 
-      res.json(responseData);
-    }, 1500); // Délai de 1.5s pour simuler l'envoi
-    
+    // Configuration de l'email pour SendGrid
+    const mailOptions = {
+      from: `"Youpi Mail" <${senderEmail}>`, // Adresse vérifiée dans SendGrid
+      replyTo: userEmail, // Les réponses iront à l'email de l'utilisateur
+      to: to,
+      subject: subject,
+      text: message, // Version texte
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #eaeaea; border-radius: 10px; overflow: hidden;">
+          <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; text-align: center;">
+            <h1 style="margin: 0;">✉️ Youpi Mail</h1>
+            <p style="margin: 5px 0 0; opacity: 0.9;">Email envoyé via votre application</p>
+          </div>
+          <div style="padding: 30px;">
+            <h2 style="color: #333; margin-top: 0;">${subject}</h2>
+            <div style="color: #555; line-height: 1.6; white-space: pre-line;">${message.replace(/\n/g, '<br>')}</div>
+            <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
+            <p style="color: #888; font-size: 0.9em;">
+              <strong>Destinataire type :</strong> ${destinator || 'Non spécifié'}<br>
+              <strong>Expéditeur :</strong> ${userEmail}<br>
+              <em>Cet email a été envoyé via l'API Youpi Mail avec SendGrid.</em>
+            </p>
+          </div>
+        </div>
+      `,
+      // Headers personnalisés pour le tracking (optionnel)
+      headers: {
+        'X-Priority': '3',
+        'X-Mailer': 'YoupiMail/1.0.0'
+      }
+    };
+
+    // Gestion des pièces jointes (si présentes)
+    if (attachments && attachments.length > 0) {
+      console.log(`📎 Préparation de ${attachments.length} pièce(s) jointe(s)`);
+      mailOptions.attachments = attachments.map((att, index) => ({
+        filename: att.name || `attachment-${index + 1}`,
+        content: att.content,
+        encoding: 'base64',
+        contentType: att.type || 'application/octet-stream'
+      }));
+    }
+
+    // Envoi réel avec Nodemailer/SendGrid
+    const transporter = createSendGridTransporter();
+    const info = await transporter.sendMail(mailOptions);
+
+    console.log("✅ EMAIL ENVOYÉ AVEC SUCCÈS VIA SENDGRID");
+    console.log("📨 Message ID:", info.messageId);
+    console.log("📨 Réponse SendGrid:", info.response ? info.response.substring(0, 200) + "..." : "Pas de réponse");
+    console.log("=".repeat(50));
+
+    // Réponse au client
+    res.json({
+      success: true,
+      messageId: info.messageId,
+      timestamp: new Date().toISOString(),
+      details: `Email envoyé avec succès de "${senderEmail}" à "${to}"`,
+      from: senderEmail,
+      replyTo: userEmail,
+      to: to,
+      subject: subject,
+      destinator: destinator,
+      attachmentsCount: attachments.length,
+      sendGridInfo: {
+        accepted: info.accepted,
+        rejected: info.rejected,
+        pending: info.pending,
+        response: info.response ? info.response.substring(0, 100) : null
+      },
+      simulated: false,
+      provider: "SendGrid"
+    });
+
   } catch (error) {
-    console.error("❌ ERREUR CRITIQUE DANS /api/emails/send:", error);
+    console.error("❌ ERREUR D'ENVOI AVEC SENDGRID:", error);
+    console.error("❌ Code d'erreur:", error.code);
     console.error("❌ Stack trace:", error.stack);
+    
+    // Messages d'erreur plus clairs selon le type d'erreur
+    let userMessage = "Échec de l'envoi de l'email via SendGrid";
+    let technicalDetails = error.message;
+    
+    if (error.code === 'EAUTH') {
+      userMessage = "Erreur d'authentification SendGrid. Vérifiez votre clé API.";
+      technicalDetails = "Vérifiez que SENDGRID_API_KEY est correcte dans les variables d'environnement Render";
+    } else if (error.code === 'EENVELOPE') {
+      userMessage = "Erreur dans les adresses email (expéditeur ou destinataire).";
+    } else if (error.message && error.message.includes('SENDGRID_API_KEY')) {
+      userMessage = "Clé API SendGrid manquante. Configurez SENDGRID_API_KEY sur Render.";
+    }
     
     res.status(500).json({
       success: false,
-      error: "Erreur interne du serveur lors de l'envoi de l'email",
-      technicalError: error.message,
+      error: userMessage,
+      details: process.env.NODE_ENV === 'production' ? 'Voir les logs serveur' : technicalDetails,
       timestamp: new Date().toISOString()
     });
   }
@@ -500,13 +588,15 @@ app.use((err, req, res, next) => {
 // ===== DÉMARRAGE DU SERVEUR =====
 const server = app.listen(PORT, HOST, () => {
   console.log("=".repeat(60));
-  console.log("🚀 YOUPI MAIL API - DÉMARRÉE AVEC SUCCÈS");
+  console.log("🚀 YOUPI MAIL API AVEC SENDGRID - DÉMARRÉE AVEC SUCCÈS");
   console.log("=".repeat(60));
   console.log(`🌐 URL Interne: http://${HOST}:${PORT}`);
   console.log(`📡 URL Externe: https://youpi-mail-api.onrender.com`);
   console.log(`🔧 Port: ${PORT}`);
   console.log(`⚡ Environnement: ${process.env.NODE_ENV || 'development'}`);
   console.log(`📊 Mémoire: ${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2)} MB utilisés`);
+  console.log(`📧 Provider: SendGrid (${process.env.SENDGRID_API_KEY ? 'API Key configurée' : 'API Key MANQUANTE'})`);
+  console.log(`📧 Expéditeur: ${process.env.SMTP_SENDER || 'NON CONFIGURÉ'}`);
   console.log("=".repeat(60));
   console.log("📋 ROUTES DISPONIBLES:");
   console.log("   GET    /                              - Info API");
@@ -516,7 +606,7 @@ const server = app.listen(PORT, HOST, () => {
   console.log("   POST   /api/auth/google               - Connexion Google");
   console.log("   POST   /api/auth/verify               - Vérification token");
   console.log("   GET    /api/templates/preview         - Prévisualisation template");
-  console.log("   POST   /api/emails/send               - Envoi d'email");
+  console.log("   POST   /api/emails/send               - Envoi d'email RÉEL (SendGrid)");
   console.log("   POST   /api/upload                    - Upload de fichier");
   console.log("=".repeat(60));
   console.log(`⏰ Démarrage: ${new Date().toISOString()}`);
