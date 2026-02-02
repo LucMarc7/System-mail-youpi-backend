@@ -11,10 +11,32 @@ const HOST = '0.0.0.0';
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Middleware de logging pour toutes les requêtes
+app.use((req, res, next) => {
+  const start = Date.now();
+  console.log(`[${new Date().toISOString()}] 📨 ${req.method} ${req.url}`);
+  
+  // Log du body pour les requêtes POST (sauf les mots de passe)
+  if (req.method === 'POST' && req.body) {
+    const logBody = { ...req.body };
+    // Masquer les mots de passe dans les logs
+    if (logBody.password) logBody.password = '***';
+    if (logBody.confirmPassword) logBody.confirmPassword = '***';
+    console.log('📝 Body:', JSON.stringify(logBody, null, 2));
+  }
+  
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    console.log(`[${new Date().toISOString()}] ✅ ${req.method} ${req.url} - ${res.statusCode} (${duration}ms)`);
+  });
+  
+  next();
+});
 
 // ===== ROUTE RACINE (CRITIQUE POUR RENDER) =====
 app.get("/", (req, res) => {
@@ -44,195 +66,489 @@ app.get("/api/health", (req, res) => {
     status: "OK",
     timestamp: new Date().toISOString(),
     service: "Youpi Mail Backend",
-    uptime: process.uptime()
+    uptime: process.uptime(),
+    memory: {
+      heapUsed: `${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2)} MB`,
+      heapTotal: `${(process.memoryUsage().heapTotal / 1024 / 1024).toFixed(2)} MB`
+    }
   });
 });
 
 // 2. Route d'inscription (register)
 app.post("/api/auth/register", async (req, res) => {
-  const { email, password, fullName } = req.body;
-  
-  if (!email || !password) {
-    return res.status(400).json({ 
-      success: false, 
-      error: "Email et mot de passe requis" 
+  try {
+    const { email, password, fullName } = req.body;
+    
+    console.log("📝 Tentative d'inscription:", { 
+      email, 
+      fullName: fullName || "Non spécifié",
+      passwordLength: password ? password.length : 0 
+    });
+    
+    if (!email || !password) {
+      return res.status(400).json({ 
+        success: false, 
+        error: "Email et mot de passe requis" 
+      });
+    }
+    
+    // Validation email
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({
+        success: false,
+        error: "Format d'email invalide"
+      });
+    }
+    
+    // Validation mot de passe
+    if (password.length < 6) {
+      return res.status(400).json({
+        success: false,
+        error: "Le mot de passe doit contenir au moins 6 caractères"
+      });
+    }
+    
+    const token = `jwt_${Date.now()}_${Math.random().toString(36).substr(2)}`;
+    
+    res.json({
+      success: true,
+      token,
+      user: { 
+        id: `user_${Date.now()}`,
+        email: email.trim().toLowerCase(), 
+        fullName: (fullName || email.split('@')[0]).trim(),
+        createdAt: new Date().toISOString()
+      }
+    });
+  } catch (error) {
+    console.error("❌ Erreur inscription:", error);
+    res.status(500).json({
+      success: false,
+      error: "Erreur interne du serveur"
     });
   }
-  
-  console.log("📝 Nouvel utilisateur:", { email, fullName: fullName || "Non spécifié" });
-  
-  const token = `jwt_simulated_${Date.now()}`;
-  
-  res.json({
-    success: true,
-    token,
-    user: { 
-      id: `user_${Date.now()}`,
-      email, 
-      fullName: fullName || email.split('@')[0]
-    }
-  });
 });
 
 // 3. Route de connexion manuelle (login)
 app.post("/api/auth/login", async (req, res) => {
-  const { email, password } = req.body;
-  
-  if (!email || !password) {
-    return res.status(400).json({ 
-      success: false, 
-      error: "Email et mot de passe requis" 
+  try {
+    const { email, password } = req.body;
+    
+    console.log("🔐 Tentative de connexion:", { 
+      email,
+      passwordLength: password ? password.length : 0 
+    });
+    
+    if (!email || !password) {
+      return res.status(400).json({ 
+        success: false, 
+        error: "Email et mot de passe requis" 
+      });
+    }
+    
+    // Validation email
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({
+        success: false,
+        error: "Format d'email invalide"
+      });
+    }
+    
+    // Simulation d'authentification
+    // En production, vérifier dans la base de données
+    
+    const token = `jwt_${Date.now()}_${Math.random().toString(36).substr(2)}`;
+    
+    res.json({
+      success: true,
+      token,
+      user: { 
+        id: "user_123",
+        email: email.trim().toLowerCase(), 
+        name: email.split('@')[0].charAt(0).toUpperCase() + email.split('@')[0].slice(1),
+        fullName: email.split('@')[0].charAt(0).toUpperCase() + email.split('@')[0].slice(1)
+      }
+    });
+  } catch (error) {
+    console.error("❌ Erreur connexion:", error);
+    res.status(500).json({
+      success: false,
+      error: "Erreur interne du serveur"
     });
   }
-  
-  console.log("🔐 Connexion manuelle de:", email);
-  
-  const token = `jwt_simulated_${Date.now()}`;
-  
-  res.json({
-    success: true,
-    token,
-    user: { 
-      id: "user_123",
-      email, 
-      name: "Utilisateur Test" 
-    }
-  });
 });
 
 // 4. Route d'authentification Google
 app.post("/api/auth/google", (req, res) => {
-  const { token, provider = "google", userInfo } = req.body;
+  try {
+    const { token, provider = "google", userInfo } = req.body;
 
-  console.log(`🔐 Connexion via ${provider}:`, token?.substring(0, 20) + "...");
+    console.log(`🔐 Connexion via ${provider}:`, { 
+      tokenLength: token?.length || 0,
+      userInfo: userInfo ? {
+        email: userInfo.email,
+        name: userInfo.name,
+        hasPhoto: !!userInfo.photo
+      } : "Non fourni"
+    });
 
-  // Simulation - À remplacer par vérification réelle du token Google
-  res.json({
-    success: true,
-    user: {
-      id: userInfo?.id || `google_${Date.now()}`,
-      email: userInfo?.email || "test@example.com",
-      name: userInfo?.name || "Test User",
-      picture: userInfo?.photo || "https://example.com/avatar.jpg",
-    },
-    smtpCredentials: {
-      server: "smtp.gmail.com",
-      port: 587,
-      username: userInfo?.email || "test@example.com",
-    },
-    token: `google_jwt_${Date.now()}`, // Token pour le frontend
-  });
+    if (!token) {
+      return res.status(400).json({
+        success: false,
+        error: "Token Google requis"
+      });
+    }
+
+    // Simulation - En production, vérifier le token avec l'API Google
+    const googleToken = `google_jwt_${Date.now()}_${Math.random().toString(36).substr(2)}`;
+    
+    res.json({
+      success: true,
+      user: {
+        id: userInfo?.id || `google_${Date.now()}`,
+        email: userInfo?.email || "test@example.com",
+        name: userInfo?.name || "Utilisateur Google",
+        fullName: userInfo?.name || "Utilisateur Google",
+        picture: userInfo?.photo || "https://ui-avatars.com/api/?name=" + encodeURIComponent(userInfo?.name || "User"),
+      },
+      smtpCredentials: {
+        server: "smtp.gmail.com",
+        port: 587,
+        username: userInfo?.email || "test@example.com",
+      },
+      token: googleToken,
+    });
+  } catch (error) {
+    console.error("❌ Erreur Google auth:", error);
+    res.status(500).json({
+      success: false,
+      error: "Erreur d'authentification Google"
+    });
+  }
 });
 
-// ===== ROUTES D'EMAIL - AJOUTÉES =====
+// ===== ROUTES D'EMAIL =====
 
 // 5. Simulation de génération de template
 app.get("/api/templates/preview", (req, res) => {
-  const { destinator } = req.query;
+  try {
+    const { destinator = "marketing" } = req.query;
+    
+    console.log("🎨 Génération template:", { destinator });
 
-  const templates = {
-    marketing:
-      '<html><body style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 40px;"><h1>🎯 Offre Marketing</h1><p>Template professionnel pour vos campagnes marketing.</p></body></html>',
-    partner:
-      '<html><body style="background: #f8f9fa; color: #333; padding: 40px; font-family: Arial;"><h1>🤝 Collaboration Partenaire</h1><p>Template formel pour communications entre partenaires.</p></body></html>',
-    ad: '<html><body style="background: #ff6b6b; color: white; padding: 40px; text-align: center;"><h1>📢 Promotion Spéciale !</h1><p>Template accrocheur pour publicités.</p></body></html>',
-    other:
-      '<html><body style="background: white; color: #333; padding: 40px; border: 1px solid #ddd;"><h1>✉️ Email Standard</h1><p>Template simple et polyvalent.</p></body></html>',
-  };
+    const templates = {
+      marketing:
+        '<html><body style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 40px; font-family: Arial, sans-serif; text-align: center;">' +
+        '<h1 style="font-size: 2.5rem; margin-bottom: 20px;">🎯 Offre Marketing Exclusive</h1>' +
+        '<p style="font-size: 1.2rem; line-height: 1.6;">Template professionnel optimisé pour vos campagnes marketing et communications commerciales.</p>' +
+        '<div style="margin-top: 30px; padding: 20px; background: rgba(255,255,255,0.1); border-radius: 10px;">' +
+        '<p style="font-style: italic;">"L\'excellence au service de votre communication"</p>' +
+        '</div></body></html>',
+      
+      partner:
+        '<html><body style="background: #f8f9fa; color: #333; padding: 40px; font-family: Arial, sans-serif;">' +
+        '<h1 style="color: #10b981; border-bottom: 2px solid #10b981; padding-bottom: 10px;">🤝 Proposition de Partenariat</h1>' +
+        '<p style="line-height: 1.6; font-size: 1.1rem;">Template formel et élégant pour les communications professionnelles entre partenaires.</p>' +
+        '<div style="margin-top: 30px; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">' +
+        '<p>Pour une collaboration fructueuse et durable.</p>' +
+        '</div></body></html>',
+      
+      ad:
+        '<html><body style="background: #ff6b6b; color: white; padding: 40px; text-align: center; font-family: Arial, sans-serif;">' +
+        '<h1 style="font-size: 2.8rem; margin-bottom: 20px;">📢 PROMOTION EXCEPTIONNELLE !</h1>' +
+        '<p style="font-size: 1.3rem; margin-bottom: 30px;">Template accrocheur et dynamique pour vos publicités et offres spéciales.</p>' +
+        '<div style="background: white; color: #ff6b6b; padding: 15px 30px; border-radius: 50px; display: inline-block; font-weight: bold; font-size: 1.2rem;">' +
+        'LIMITÉ À 24H !' +
+        '</div></body></html>',
+      
+      other:
+        '<html><body style="background: white; color: #333; padding: 40px; border: 1px solid #ddd; font-family: Arial, sans-serif;">' +
+        '<h1 style="color: #4F46E5;">✉️ Communication Professionnelle</h1>' +
+        '<p style="line-height: 1.6;">Template simple, polyvalent et efficace pour toutes vos communications.</p>' +
+        '<div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee;">' +
+        '<p style="color: #666; font-size: 0.9rem;">Message professionnel et structuré</p>' +
+        '</div></body></html>',
+    };
 
-  const html = templates[destinator] || templates.other;
-  res.setHeader("Content-Type", "text/html");
-  res.send(html);
+    const html = templates[destinator] || templates.other;
+    
+    res.setHeader("Content-Type", "text/html");
+    res.setHeader("Cache-Control", "no-cache");
+    res.send(html);
+  } catch (error) {
+    console.error("❌ Erreur génération template:", error);
+    res.status(500).send("<html><body><h1>Erreur de génération du template</h1></body></html>");
+  }
 });
 
-// 6. Route d'envoi d'email AVEC VALIDATION - AJOUTÉE
+// 6. Route d'envoi d'email - CORRIGÉE ET COMPLÈTE
 app.post("/api/emails/send", (req, res) => {
-  const { to, subject, message, destinator, attachments = [], userEmail } = req.body;
+  try {
+    const { 
+      to, 
+      subject, 
+      message, 
+      destinator = "other", 
+      attachments = [], 
+      userEmail 
+    } = req.body;
 
-  // VALIDATION DES DONNÉES
-  if (!to || !subject || !message) {
-    return res.status(400).json({
+    console.log("=".repeat(50));
+    console.log("📧 NOUVEAU DEMANDE D'ENVOI D'EMAIL");
+    console.log("=".repeat(50));
+    
+    // Log détaillé de toutes les données reçues
+    console.log("📋 DONNÉES REÇUES:");
+    console.log("- userEmail (expéditeur):", userEmail || "NON FOURNI ⚠️");
+    console.log("- to (destinataire):", to || "NON FOURNI");
+    console.log("- subject:", subject || "NON FOURNI");
+    console.log("- message length:", message ? message.length : 0, "caractères");
+    console.log("- destinator:", destinator);
+    console.log("- attachments:", attachments.length, "fichier(s)");
+    
+    if (attachments.length > 0) {
+      console.log("  Détails des pièces jointes:");
+      attachments.forEach((att, idx) => {
+        console.log(`  ${idx + 1}. ${att.name} (${att.type}) - ${att.content ? att.content.length : 0} chars base64`);
+      });
+    }
+    console.log("=".repeat(50));
+
+    // VALIDATION DES DONNÉES
+    const errors = [];
+    
+    if (!to) errors.push("Destinataire requis");
+    if (!subject) errors.push("Sujet requis");
+    if (!message) errors.push("Message requis");
+    if (!userEmail) errors.push("Email expéditeur requis");
+    
+    // Validation format email
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (to && !emailRegex.test(to)) errors.push("Format email destinataire invalide");
+    if (userEmail && !emailRegex.test(userEmail)) errors.push("Format email expéditeur invalide");
+
+    if (errors.length > 0) {
+      console.log("❌ ERREURS DE VALIDATION:", errors);
+      return res.status(400).json({
+        success: false,
+        error: errors.join(", "),
+        details: {
+          received: {
+            userEmail: !!userEmail,
+            to: !!to,
+            subject: !!subject,
+            message: !!message,
+            destinator: destinator,
+            attachmentsCount: attachments.length
+          }
+        }
+      });
+    }
+
+    console.log("✅ VALIDATION RÉUSSIE");
+    console.log(`📤 Simulation envoi: ${userEmail} → ${to}`);
+
+    // Simulation d'un envoi réel avec délai
+    setTimeout(() => {
+      const messageId = `email_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      const timestamp = new Date().toISOString();
+      
+      const responseData = {
+        success: true,
+        messageId: messageId,
+        timestamp: timestamp,
+        details: `Email envoyé avec succès de "${userEmail}" à "${to}"`,
+        from: userEmail,
+        to: to,
+        subject: subject,
+        destinator: destinator,
+        messagePreview: message.length > 100 ? message.substring(0, 100) + "..." : message,
+        attachmentsCount: attachments.length,
+        simulated: true,
+        serverInfo: {
+          name: "Youpi Mail API",
+          version: "1.0.0",
+          environment: process.env.NODE_ENV || 'development'
+        }
+      };
+
+      console.log("✅ EMAIL ENVOYÉ (SIMULATION)");
+      console.log("📨 RÉPONSE:", JSON.stringify(responseData, null, 2));
+      console.log("=".repeat(50));
+
+      res.json(responseData);
+    }, 1500); // Délai de 1.5s pour simuler l'envoi
+    
+  } catch (error) {
+    console.error("❌ ERREUR CRITIQUE DANS /api/emails/send:", error);
+    console.error("❌ Stack trace:", error.stack);
+    
+    res.status(500).json({
       success: false,
-      error: "Les champs 'to', 'subject' et 'message' sont obligatoires."
+      error: "Erreur interne du serveur lors de l'envoi de l'email",
+      technicalError: error.message,
+      timestamp: new Date().toISOString()
     });
   }
-
-  console.log("📧 Email à envoyer (simulation):");
-  console.log("- De:", userEmail || "infos@ceoawardsdrc.com (par défaut)");
-  console.log("- À:", to);
-  console.log("- Sujet:", subject);
-  console.log("- Destinataire type:", destinator || "non spécifié");
-  console.log("- Pièces jointes:", attachments.length);
-
-  // Simuler un délai d'envoi
-  setTimeout(() => {
-    res.json({
-      success: true,
-      messageId: `simulated_${Date.now()}`,
-      timestamp: new Date().toISOString(),
-      details: `Email simulé de ${userEmail || "infos@ceoawardsdrc.com"} vers ${to} avec succès`,
-      from: userEmail || "infos@ceoawardsdrc.com", // Retourne l'email utilisé comme FROM
-    });
-  }, 1000);
 });
 
-// 7. Route pour upload de fichiers (simulation) - AJOUTÉE
+// 7. Route pour upload de fichiers (simulation)
 app.post("/api/upload", (req, res) => {
-  console.log("📎 Upload simulé");
+  try {
+    const { file } = req.body;
+    
+    console.log("📎 Demande d'upload:", {
+      fileName: file?.name || "Inconnu",
+      fileType: file?.type || "Inconnu",
+      contentLength: file?.content?.length || 0
+    });
+
+    if (!file || !file.content) {
+      return res.status(400).json({
+        success: false,
+        error: "Fichier requis"
+      });
+    }
+
+    // Simulation d'upload réussi
+    const fileId = `file_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+    
+    res.json({
+      success: true,
+      url: `https://storage.youpimail.com/uploads/${fileId}/${encodeURIComponent(file.name || "file")}`,
+      filename: file.name || "uploaded_file",
+      size: file.content.length,
+      id: fileId,
+      uploadedAt: new Date().toISOString(),
+      type: file.type || "application/octet-stream"
+    });
+  } catch (error) {
+    console.error("❌ Erreur upload:", error);
+    res.status(500).json({
+      success: false,
+      error: "Erreur lors de l'upload du fichier"
+    });
+  }
+});
+
+// ===== ROUTES UTILITAIRES =====
+
+// Route pour vérifier un token (simulation)
+app.post("/api/auth/verify", (req, res) => {
+  const { token } = req.body;
+  
+  console.log("🔍 Vérification token:", token ? "Présent" : "Absent");
+  
+  if (!token) {
+    return res.json({
+      success: false,
+      valid: false,
+      error: "Token manquant"
+    });
+  }
+  
+  // Simulation: tout token qui commence par "jwt_" ou "google_jwt_" est valide
+  const isValid = token.startsWith("jwt_") || token.startsWith("google_jwt_");
+  
   res.json({
     success: true,
-    url: "https://example.com/uploads/simulated-file.pdf",
-    filename: "test-file.pdf",
-    size: 1024 * 1024,
+    valid: isValid,
+    user: isValid ? {
+      id: "user_verified",
+      email: "verified@example.com",
+      name: "Utilisateur Vérifié"
+    } : null
   });
 });
 
 // ===== ROUTE 404 POUR LES ROUTES NON TROUVÉES =====
 app.use((req, res, next) => {
+  console.log(`❌ Route non trouvée: ${req.method} ${req.url}`);
+  
   res.status(404).json({
     success: false,
     error: `Route non trouvée: ${req.method} ${req.path}`,
     availableRoutes: [
-      "GET /",
-      "GET /api/health",
-      "POST /api/auth/register",
-      "POST /api/auth/login", 
-      "POST /api/auth/google",
-      "GET /api/templates/preview",
-      "POST /api/emails/send",
-      "POST /api/upload"
-    ]
+      "GET    /",
+      "GET    /api/health",
+      "POST   /api/auth/register",
+      "POST   /api/auth/login", 
+      "POST   /api/auth/google",
+      "POST   /api/auth/verify",
+      "GET    /api/templates/preview?destinator=[marketing|partner|ad|other]",
+      "POST   /api/emails/send",
+      "POST   /api/upload"
+    ],
+    timestamp: new Date().toISOString()
+  });
+});
+
+// ===== GESTION DES ERREURS GLOBALES =====
+app.use((err, req, res, next) => {
+  console.error("🔥 ERREUR GLOBALE:", err);
+  
+  res.status(500).json({
+    success: false,
+    error: "Erreur interne du serveur",
+    message: process.env.NODE_ENV === 'development' ? err.message : undefined,
+    timestamp: new Date().toISOString()
   });
 });
 
 // ===== DÉMARRAGE DU SERVEUR =====
-app.listen(PORT, HOST, () => {
-  console.log(`✅ Serveur démarré avec succès`);
-  console.log(`🌐 URL: http://${HOST}:${PORT}`);
-  console.log(`📡 Accès externe: https://youpi-mail-api.onrender.com`);
+const server = app.listen(PORT, HOST, () => {
+  console.log("=".repeat(60));
+  console.log("🚀 YOUPI MAIL API - DÉMARRÉE AVEC SUCCÈS");
+  console.log("=".repeat(60));
+  console.log(`🌐 URL Interne: http://${HOST}:${PORT}`);
+  console.log(`📡 URL Externe: https://youpi-mail-api.onrender.com`);
   console.log(`🔧 Port: ${PORT}`);
   console.log(`⚡ Environnement: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`📊 Mémoire: ${process.memoryUsage().heapUsed / 1024 / 1024} MB`);
-  
-  // Afficher toutes les routes disponibles
-  console.log(`\n📋 Routes disponibles:`);
-  console.log(`   GET    /`);
-  console.log(`   GET    /api/health`);
-  console.log(`   POST   /api/auth/register`);
-  console.log(`   POST   /api/auth/login`);
-  console.log(`   POST   /api/auth/google`);
-  console.log(`   GET    /api/templates/preview?destinator=marketing`);
-  console.log(`   POST   /api/emails/send`);
-  console.log(`   POST   /api/upload`);
+  console.log(`📊 Mémoire: ${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2)} MB utilisés`);
+  console.log("=".repeat(60));
+  console.log("📋 ROUTES DISPONIBLES:");
+  console.log("   GET    /                              - Info API");
+  console.log("   GET    /api/health                    - Health check");
+  console.log("   POST   /api/auth/register             - Inscription");
+  console.log("   POST   /api/auth/login                - Connexion");
+  console.log("   POST   /api/auth/google               - Connexion Google");
+  console.log("   POST   /api/auth/verify               - Vérification token");
+  console.log("   GET    /api/templates/preview         - Prévisualisation template");
+  console.log("   POST   /api/emails/send               - Envoi d'email");
+  console.log("   POST   /api/upload                    - Upload de fichier");
+  console.log("=".repeat(60));
+  console.log(`⏰ Démarrage: ${new Date().toISOString()}`);
+  console.log("=".repeat(60));
+});
+
+// Gestion propre de l'arrêt
+process.on('SIGTERM', () => {
+  console.log('🛑 SIGTERM reçu: arrêt du serveur HTTP...');
+  server.close(() => {
+    console.log('✅ Serveur HTTP arrêté');
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('🛑 SIGINT reçu: arrêt du serveur HTTP...');
+  server.close(() => {
+    console.log('✅ Serveur HTTP arrêté');
+    process.exit(0);
+  });
 });
 
 // Gestion des erreurs non capturées
 process.on('uncaughtException', (err) => {
-  console.error('⚠️ Erreur non capturée:', err);
+  console.error('⚠️ ERREUR NON CAPTURÉE:', err);
+  console.error('Stack trace:', err.stack);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-  console.error('⚠️ Rejet non géré:', reason);
+  console.error('⚠️ REJET NON GÉRÉ:', reason);
+  console.error('Promise:', promise);
 });
 
 // Export pour les tests
