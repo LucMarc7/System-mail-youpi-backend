@@ -9,46 +9,87 @@ const HOST = '0.0.0.0';
 
 // ===== CONFIGURATION NODEMAILER POUR SENDGRID =====
 const createSendGridTransporter = () => {
-  console.log("🔄 Initialisation du transporteur SendGrid...");
+  console.log("=".repeat(60));
+  console.log("🔄 INITIALISATION TRANSPORTEUR SENDGRID");
+  console.log("=".repeat(60));
+  
+  // Vérification DÉTAILLÉE des variables
+  console.log("🔍 Vérification variables d'environnement:");
   
   if (!process.env.SENDGRID_API_KEY) {
     console.error('❌ ERREUR CRITIQUE: SENDGRID_API_KEY non définie');
-    throw new Error("SENDGRID_API_KEY manquante");
+    console.error('   ➡️ Ajoutez SENDGRID_API_KEY sur Render: Settings > Environment');
+    throw new Error("SENDGRID_API_KEY manquante - Configurez-la sur Render");
   }
   
   if (!process.env.SMTP_SENDER) {
     console.error('❌ ERREUR CRITIQUE: SMTP_SENDER non définie');
-    throw new Error("SMTP_SENDER manquante");
+    console.error('   ➡️ Ajoutez SMTP_SENDER sur Render (email vérifié SendGrid)');
+    throw new Error("SMTP_SENDER manquante - Configurez un email vérifié sur Render");
   }
   
-  console.log(`✅ Variables SendGrid détectées`);
+  console.log("✅ SENDGRID_API_KEY: Présente (longueur:", process.env.SENDGRID_API_KEY.length, "chars)");
+  console.log("   Début clé:", process.env.SENDGRID_API_KEY.substring(0, 10) + "...");
+  console.log("✅ SMTP_SENDER:", process.env.SMTP_SENDER);
   
-  return nodemailer.createTransport({
-    host: 'smtp.sendgrid.net',
-    port: 587,
-    secure: false,
-    auth: {
-      user: "apikey",
-      pass: process.env.SENDGRID_API_KEY
-    },
-    connectionTimeout: 10000,
-    greetingTimeout: 10000,
-    socketTimeout: 15000,
-    debug: process.env.NODE_ENV === 'development',
-    logger: process.env.NODE_ENV === 'development'
-  });
+  // Validation format clé API
+  if (!process.env.SENDGRID_API_KEY.startsWith('SG.')) {
+    console.error('⚠️ ATTENTION: La clé API ne commence pas par "SG." - format suspect');
+  }
+  
+  // Validation format email
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(process.env.SMTP_SENDER)) {
+    console.error('⚠️ ATTENTION: SMTP_SENDER n\'est pas un email valide');
+  }
+  
+  console.log("⚙️  Création transporteur avec timeout...");
+  
+  try {
+    const transporter = nodemailer.createTransport({
+      host: 'smtp.sendgrid.net',
+      port: 587,
+      secure: false,
+      auth: {
+        user: "apikey", // TOUJOURS 'apikey' pour SendGrid
+        pass: process.env.SENDGRID_API_KEY
+      },
+      // Timeouts STRICTES pour éviter les blocages
+      connectionTimeout: 10000,  // 10s max pour se connecter
+      greetingTimeout: 10000,    // 10s max pour salutation
+      socketTimeout: 15000,      // 15s max pour opérations socket
+      // Debug activé pour voir la conversation SMTP
+      debug: true, // TOUJOURS activé pour le diagnostic
+      logger: true
+    });
+    
+    console.log("✅ Transporteur SendGrid créé avec succès");
+    console.log("=".repeat(60));
+    
+    return transporter;
+  } catch (transportError) {
+    console.error("❌ ERREUR création transporteur Nodemailer:", transportError.message);
+    console.error("❌ Stack:", transportError.stack);
+    throw transportError;
+  }
 };
 
 // Créer le transporteur une seule fois
 let transporterInstance = null;
 const getSendGridTransporter = () => {
   if (!transporterInstance) {
-    transporterInstance = createSendGridTransporter();
+    try {
+      transporterInstance = createSendGridTransporter();
+    } catch (error) {
+      console.error("💥 ERREUR FATALE: Impossible de créer le transporteur SendGrid");
+      transporterInstance = null;
+      throw error;
+    }
   }
   return transporterInstance;
 };
 
-// Middlewares
+// ===== MIDDLEWARES =====
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -57,21 +98,36 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Middleware de logging
+// Middleware de logging amélioré
 app.use((req, res, next) => {
   const start = Date.now();
-  console.log(`[${new Date().toISOString()}] 📨 ${req.method} ${req.url}`);
+  const requestId = Date.now().toString(36) + Math.random().toString(36).substr(2);
+  
+  console.log(`\n[${new Date().toISOString()}] 📨 ${req.method} ${req.url} [ID:${requestId}]`);
   
   if (req.method === 'POST' && req.body) {
     const logBody = { ...req.body };
+    // Masquer les données sensibles
     if (logBody.password) logBody.password = '***';
     if (logBody.confirmPassword) logBody.confirmPassword = '***';
-    console.log('📝 Body:', JSON.stringify(logBody, null, 2));
+    if (logBody.SENDGRID_API_KEY) logBody.SENDGRID_API_KEY = '***';
+    
+    // Log concis pour les emails
+    if (req.url === '/api/emails/send') {
+      console.log(`   📧 Email: ${logBody.to || 'N/A'} <- ${logBody.userEmail || 'N/A'}`);
+      console.log(`   📝 Sujet: ${logBody.subject?.substring(0, 50) || 'N/A'}`);
+    } else {
+      console.log('   📦 Body:', JSON.stringify(logBody, null, 2));
+    }
   }
+  
+  // Attacher l'ID à la réponse
+  res.setHeader('X-Request-ID', requestId);
   
   res.on('finish', () => {
     const duration = Date.now() - start;
-    console.log(`[${new Date().toISOString()}] ✅ ${req.method} ${req.url} - ${res.statusCode} (${duration}ms)`);
+    const statusIcon = res.statusCode >= 400 ? '❌' : '✅';
+    console.log(`[${new Date().toISOString()}] ${statusIcon} ${req.method} ${req.url} - ${res.statusCode} (${duration}ms) [ID:${requestId}]\n`);
   });
   
   next();
@@ -85,6 +141,7 @@ app.get("/", (req, res) => {
     version: "1.0.0",
     timestamp: new Date().toISOString(),
     emailProvider: "SendGrid",
+    server: "https://system-mail-youpi-backend.onrender.com",
     endpoints: {
       health: "GET /api/health",
       register: "POST /api/auth/register",
@@ -102,15 +159,23 @@ app.get("/", (req, res) => {
 
 // 1. Route santé
 app.get("/api/health", (req, res) => {
+  const sendGridStatus = process.env.SENDGRID_API_KEY ? {
+    configured: true,
+    keyLength: process.env.SENDGRID_API_KEY.length,
+    sender: process.env.SMTP_SENDER || 'Non configuré'
+  } : { configured: false };
+  
   res.json({
     status: "OK",
     timestamp: new Date().toISOString(),
     service: "Youpi Mail Backend",
     uptime: process.uptime(),
     emailProvider: "SendGrid",
+    sendGrid: sendGridStatus,
     memory: {
       heapUsed: `${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2)} MB`,
-      heapTotal: `${(process.memoryUsage().heapTotal / 1024 / 1024).toFixed(2)} MB`
+      heapTotal: `${(process.memoryUsage().heapTotal / 1024 / 1024).toFixed(2)} MB`,
+      rss: `${(process.memoryUsage().rss / 1024 / 1024).toFixed(2)} MB`
     }
   });
 });
@@ -247,21 +312,25 @@ app.get("/api/templates/preview", (req, res) => {
   }
 });
 
-// 6. Route d'envoi d'email - CORRIGÉE (timeout fix)
+// 6. Route d'envoi d'email - VERSION AMÉLIORÉE avec LOGS DÉTAILLÉS
 app.post("/api/emails/send", async (req, res) => {
   const startTime = Date.now();
-  console.log("=".repeat(50));
-  console.log("📧 DÉBUT - Envoi email via SendGrid");
+  const requestId = Date.now().toString(36) + Math.random().toString(36).substr(2);
+  
+  console.log("\n" + "=".repeat(70));
+  console.log("📧 DÉMARRAGE ENVOI EMAIL [ID:" + requestId + "]");
+  console.log("=".repeat(70));
   
   try {
     const { to, subject, message, destinator = "other", attachments = [], userEmail } = req.body;
 
     console.log("📋 DONNÉES REÇUES:");
-    console.log("- Destinataire:", to || "NON FOURNI");
-    console.log("- Sujet:", subject || "NON FOURNI");
-    console.log("- Message:", message ? `${message.length} caractères` : "0 caractères");
-    console.log("- Expéditeur:", userEmail || "NON FOURNI");
-    console.log("- Attachments:", attachments.length);
+    console.log("   Destinataire (to):", to || "❌ NON FOURNI");
+    console.log("   Sujet (subject):", subject || "❌ NON FOURNI");
+    console.log("   Message:", message ? `✅ ${message.length} caractères` : "❌ 0 caractères");
+    console.log("   Expéditeur (userEmail):", userEmail || "❌ NON FOURNI");
+    console.log("   Destinator:", destinator);
+    console.log("   Pièces jointes:", attachments.length > 0 ? `✅ ${attachments.length} fichier(s)` : "Aucune");
     
     // VALIDATION RAPIDE
     const errors = [];
@@ -275,22 +344,32 @@ app.post("/api/emails/send", async (req, res) => {
     if (userEmail && !emailRegex.test(userEmail)) errors.push("Format email expéditeur invalide");
 
     if (errors.length > 0) {
-      console.log("❌ Validation échouée:", errors);
+      console.log("❌ VALIDATION ÉCHOUÉE:", errors);
       return res.status(400).json({
         success: false,
         error: errors.join(", "),
         timestamp: new Date().toISOString(),
-        validationTime: `${Date.now() - startTime}ms`
+        validationTime: `${Date.now() - startTime}ms`,
+        requestId: requestId
       });
     }
 
-    console.log("✅ Validation réussie");
+    console.log("✅ Validation réussie en", Date.now() - startTime, "ms");
     
-    // Récupération du transporteur
-    const transporter = getSendGridTransporter();
+    // VÉRIFICATION CRITIQUE DU TRANSPORTEUR
+    console.log("🔄 Récupération transporteur SendGrid...");
+    let transporter;
+    try {
+      transporter = getSendGridTransporter();
+      console.log("✅ Transporteur récupéré");
+    } catch (transporterError) {
+      console.error("❌ ERREUR TRANSPORTEUR:", transporterError.message);
+      throw new Error(`Configuration SendGrid invalide: ${transporterError.message}`);
+    }
+    
     const senderEmail = process.env.SMTP_SENDER;
-    
-    console.log(`📤 Préparation email: ${senderEmail} → ${to}`);
+    console.log(`📤 Préparation email de: ${senderEmail} → ${to}`);
+    console.log(`   Reply-To: ${userEmail}`);
     
     // Préparation de l'email
     const mailOptions = {
@@ -318,20 +397,41 @@ app.post("/api/emails/send", async (req, res) => {
       `
     };
 
-    // ENVOI AVEC TIMEOUT DE 15 SECONDES MAX
-    console.log("⏳ Début envoi SendGrid...");
+    // ENVOI AVEC TIMEOUT ET LOGS DÉTAILLÉS
+    console.log("⏳ Tentative d'envoi via SendGrid...");
+    console.log("   Timeout configuré: 15 secondes");
     
     const sendWithTimeout = () => {
       return new Promise((resolve, reject) => {
         const timeoutId = setTimeout(() => {
+          console.error("⏰ TIMEOUT: SendGrid n'a pas répondu après 15 secondes");
           reject(new Error("Timeout: SendGrid n'a pas répondu après 15 secondes"));
         }, 15000);
         
+        console.log("   📤 Appel à transporter.sendMail()...");
+        
         transporter.sendMail(mailOptions, (error, info) => {
           clearTimeout(timeoutId);
+          
           if (error) {
+            console.error("   ❌ ERREUR SENGRID DÉTAILLÉE:");
+            console.error("      Message:", error.message);
+            console.error("      Code:", error.code || "N/A");
+            console.error("      Command:", error.command || "N/A");
+            console.error("      Response Code:", error.responseCode || "N/A");
+            console.error("      Response:", error.response || "N/A");
+            
+            if (error.response) {
+              console.error("      Réponse brute:", error.response.substring(0, 200));
+            }
+            
             reject(error);
           } else {
+            console.log("   ✅ SUCCÈS SENGRID:");
+            console.log("      Message ID:", info.messageId || "N/A");
+            console.log("      Response:", info.response ? info.response.substring(0, 100) + "..." : "N/A");
+            console.log("      Accepted:", info.accepted ? info.accepted.join(", ") : "N/A");
+            console.log("      Rejected:", info.rejected ? info.rejected.join(", ") : "Aucun");
             resolve(info);
           }
         });
@@ -341,11 +441,10 @@ app.post("/api/emails/send", async (req, res) => {
     const info = await sendWithTimeout();
     const totalTime = Date.now() - startTime;
     
-    console.log(`✅ Email accepté par SendGrid en ${totalTime}ms`);
-    console.log("📨 Message ID:", info.messageId);
-    console.log("=".repeat(50));
+    console.log(`🎉 EMAIL ENVOYÉ AVEC SUCCÈS en ${totalTime}ms`);
+    console.log("=".repeat(70) + "\n");
     
-    // Réponse RAPIDE
+    // Réponse au client
     res.json({
       success: true,
       messageId: info.messageId,
@@ -357,32 +456,72 @@ app.post("/api/emails/send", async (req, res) => {
       subject: subject,
       processingTime: `${totalTime}ms`,
       simulated: false,
-      provider: "SendGrid"
+      provider: "SendGrid",
+      requestId: requestId
     });
 
   } catch (error) {
     const totalTime = Date.now() - startTime;
-    console.error(`❌ ERREUR après ${totalTime}ms:`, error.message);
     
+    console.error("\n💥💥💥 ERREUR CRITIQUE DANS /api/emails/send 💥💥💥");
+    console.error("   Temps écoulé:", totalTime, "ms");
+    console.error("   Request ID:", requestId);
+    console.error("   Message:", error.message);
+    console.error("   Stack:", error.stack);
+    
+    // Analyse détaillée de l'erreur SendGrid
+    if (error.code) {
+      console.error("   Code erreur:", error.code);
+    }
+    if (error.command) {
+      console.error("   Commande:", error.command);
+    }
+    if (error.responseCode) {
+      console.error("   Code réponse:", error.responseCode);
+    }
+    if (error.response) {
+      console.error("   Réponse SendGrid:", error.response.substring(0, 500));
+    }
+    
+    console.error("=".repeat(70) + "\n");
+    
+    // Messages d'erreur utilisateur selon le type
     let userMessage = "Échec de l'envoi de l'email";
     let statusCode = 500;
+    let details = null;
     
     if (error.message.includes("Timeout")) {
       userMessage = "SendGrid est trop lent à répondre. Veuillez réessayer.";
-      statusCode = 504;
+      statusCode = 504; // Gateway Timeout
     } else if (error.code === 'EAUTH') {
-      userMessage = "Erreur d'authentification SendGrid. Vérifiez votre clé API.";
+      userMessage = "Erreur d'authentification SendGrid.";
+      details = "Vérifiez que votre clé API SendGrid est valide et active.";
     } else if (error.code === 'EENVELOPE') {
       userMessage = "Erreur dans les adresses email.";
       statusCode = 400;
+      details = "Vérifiez le format des adresses email (expéditeur et destinataire).";
+    } else if (error.message.includes('SENDGRID_API_KEY')) {
+      userMessage = "Configuration SendGrid manquante.";
+      details = "Configurez SENDGRID_API_KEY et SMTP_SENDER sur Render.";
+    } else if (error.response && error.response.includes('Unauthorized')) {
+      userMessage = "Accès refusé par SendGrid.";
+      details = "Clé API SendGrid invalide ou expirée.";
+    } else if (error.response && error.response.includes('sender identity')) {
+      userMessage = "Expéditeur non autorisé.";
+      details = "L'email SMTP_SENDER doit être vérifié dans votre compte SendGrid.";
     }
+    
+    // Toujours retourner l'erreur technique en développement
+    const technicalError = process.env.NODE_ENV === 'development' ? error.message : undefined;
     
     res.status(statusCode).json({
       success: false,
       error: userMessage,
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      details: details,
+      technicalError: technicalError,
       processingTime: `${totalTime}ms`,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      requestId: requestId
     });
   }
 });
@@ -460,9 +599,10 @@ app.use((req, res) => {
   });
 });
 
-// ===== GESTION DES ERREURS =====
+// ===== GESTION DES ERREURS GLOBALES =====
 app.use((err, req, res, next) => {
-  console.error("🔥 ERREUR GLOBALE:", err);
+  console.error("🔥 ERREUR GLOBALE NON CAPTURÉE:", err);
+  console.error("🔥 Stack:", err.stack);
   
   res.status(500).json({
     success: false,
@@ -474,30 +614,48 @@ app.use((err, req, res, next) => {
 
 // ===== DÉMARRAGE =====
 const server = app.listen(PORT, HOST, () => {
-  console.log("=".repeat(60));
+  console.log("\n" + "=".repeat(70));
   console.log("🚀 YOUPI MAIL API AVEC SENDGRID - DÉMARRÉE AVEC SUCCÈS");
-  console.log("=".repeat(60));
-  console.log(`🌐 URL: https://system-mail-youpi-backend.onrender.com/`);
-  console.log(`🔧 Port: ${PORT}`);
+  console.log("=".repeat(70));
+  console.log(`🌐 URL Publique: https://system-mail-youpi-backend.onrender.com`);
+  console.log(`🔧 Port Serveur: ${PORT}`);
+  console.log(`🏠 Host: ${HOST}`);
   console.log(`⚡ Environnement: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`📧 SendGrid: ${process.env.SENDGRID_API_KEY ? '✓ Configuré' : '✗ MANQUANT'}`);
-  console.log(`📧 Expéditeur: ${process.env.SMTP_SENDER || '✗ NON CONFIGURÉ'}`);
-  console.log("=".repeat(60));
+  console.log(`📧 SendGrid Config: ${process.env.SENDGRID_API_KEY ? '✅ API Key présente' : '❌ API Key MANQUANTE'}`);
+  console.log(`📧 Expéditeur Config: ${process.env.SMTP_SENDER ? `✅ ${process.env.SMTP_SENDER}` : '❌ NON CONFIGURÉ'}`);
+  
+  // Test de connexion SendGrid au démarrage
+  if (process.env.SENDGRID_API_KEY && process.env.SMTP_SENDER) {
+    console.log("\n🔍 Test de connexion SendGrid au démarrage...");
+    try {
+      const transporter = getSendGridTransporter();
+      console.log("✅ SendGrid: Transporteur initialisé avec succès");
+    } catch (error) {
+      console.error(`❌ SendGrid: Échec initialisation - ${error.message}`);
+    }
+  } else {
+    console.error("\n⚠️  ATTENTION: Variables SendGrid manquantes!");
+    console.error("   Configurez SENDGRID_API_KEY et SMTP_SENDER sur Render");
+  }
+  
+  console.log("=".repeat(70));
+  console.log(`⏰ Démarrage: ${new Date().toISOString()}`);
+  console.log("=".repeat(70) + "\n");
 });
 
-// Gestion arrêt
+// Gestion arrêt propre
 process.on('SIGTERM', () => {
-  console.log('🛑 SIGTERM reçu: arrêt...');
+  console.log('\n🛑 SIGTERM reçu: arrêt propre du serveur...');
   server.close(() => {
-    console.log('✅ Serveur arrêté');
+    console.log('✅ Serveur arrêté proprement');
     process.exit(0);
   });
 });
 
 process.on('SIGINT', () => {
-  console.log('🛑 SIGINT reçu: arrêt...');
+  console.log('\n🛑 SIGINT reçu: arrêt propre du serveur...');
   server.close(() => {
-    console.log('✅ Serveur arrêté');
+    console.log('✅ Serveur arrêté proprement');
     process.exit(0);
   });
 });
