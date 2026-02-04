@@ -32,9 +32,9 @@ const createSendGridTransporter = () => {
         pass: process.env.SENDGRID_API_KEY
       },
       // Configuration de timeout pour éviter les blocages
-      connectionTimeout: 10000, // 10 secondes max pour la connexion
-      greetingTimeout: 10000,   // 10 secondes max pour le greeting
-      socketTimeout: 15000,     // 15 secondes max pour les opérations socket
+      connectionTimeout: 70000, // 10 secondes max pour la connexion
+      greetingTimeout: 70000,   // 10 secondes max pour le greeting
+      socketTimeout: 65000,     // 15 secondes max pour les opérations socket
       // Options de débogage
       debug: process.env.NODE_ENV === 'development',
       logger: process.env.NODE_ENV === 'development'
