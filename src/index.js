@@ -1,7 +1,9 @@
-const sgMail = require('@sendgrid/mail'); // <-- REMPLACÉ ICI
+const sgMail = require('@sendgrid/mail');
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
+const path = require("path");
+const fs = require("fs");
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -109,6 +111,38 @@ const sendEmailViaAPI = async (emailData) => {
   }
 };
 
+// Fonction pour vérifier si une image de bannière existe
+const getBannerImageUrl = () => {
+  const assetsPath = path.join(__dirname, 'assets');
+  const bannerPath = path.join(assetsPath, 'banniere.jpg');
+  
+  if (fs.existsSync(bannerPath)) {
+    const baseUrl = process.env.BASE_URL || `http://localhost:${PORT}`;
+    return `${baseUrl}/assets/banniere.jpg`;
+  } else {
+    console.warn("⚠️ Image bannière non trouvée dans /assets/banniere.jpg");
+    
+    // Retourner une image par défaut ou null
+    const defaultImages = [
+      'banniere.png',
+      'banner.jpg',
+      'banner.png',
+      'header.jpg',
+      'header.png'
+    ];
+    
+    for (const img of defaultImages) {
+      const testPath = path.join(assetsPath, img);
+      if (fs.existsSync(testPath)) {
+        const baseUrl = process.env.BASE_URL || `http://localhost:${PORT}`;
+        return `${baseUrl}/assets/${img}`;
+      }
+    }
+    
+    return null;
+  }
+};
+
 // ===== MIDDLEWARES =====
 app.use(cors({
   origin: '*',
@@ -117,6 +151,9 @@ app.use(cors({
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Middleware pour servir les fichiers statiques depuis assets
+app.use('/assets', express.static(path.join(__dirname, 'assets')));
 
 // Middleware de logging amélioré
 app.use((req, res, next) => {
@@ -186,6 +223,11 @@ app.get("/api/health", (req, res) => {
     sender: process.env.SMTP_SENDER || 'Non configuré'
   } : { configured: false, method: "N/A" };
   
+  // Vérifier si l'image bannière existe
+  const assetsPath = path.join(__dirname, 'assets');
+  const bannerPath = path.join(assetsPath, 'banniere.jpg');
+  const bannerExists = fs.existsSync(bannerPath);
+  
   res.json({
     status: "OK",
     timestamp: new Date().toISOString(),
@@ -193,6 +235,11 @@ app.get("/api/health", (req, res) => {
     uptime: process.uptime(),
     emailProvider: "SendGrid Web API",
     sendGrid: sendGridStatus,
+    banner: {
+      exists: bannerExists,
+      path: bannerExists ? '/assets/baniere.png' : null,
+      accessible: bannerExists ? `${process.env.BASE_URL || `http://localhost:${PORT}`}/assets/baniere.png` : null
+    },
     memory: {
       heapUsed: `${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2)} MB`,
       heapTotal: `${(process.memoryUsage().heapTotal / 1024 / 1024).toFixed(2)} MB`,
@@ -391,24 +438,175 @@ app.post("/api/emails/send", async (req, res) => {
     console.log(`📤 Préparation email via API Web: ${senderEmail} → ${to}`);
     console.log(`   Reply-To: ${userEmail}`);
     
+    // Obtenir l'URL de la bannière
+    const bannerUrl = getBannerImageUrl();
+    console.log(`🖼️  URL bannière: ${bannerUrl || 'Non disponible'}`);
+    
     // Génération du HTML selon le destinator
     let htmlContent = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #eaeaea; border-radius: 10px; overflow: hidden;">
-        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; text-align: center;">
-          <h1 style="margin: 0;">✉️ Youpi Mail</h1>
-          <p style="margin: 5px 0 0; opacity: 0.9;">Email envoyé via votre application</p>
+    <!DOCTYPE html>
+    <html lang="fr">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>${subject}</title>
+        <style>
+            body {
+                font-family: 'Arial', sans-serif;
+                margin: 0;
+                padding: 0;
+                background-color: #f5f5f5;
+                line-height: 1.6;
+            }
+            .email-container {
+                max-width: 600px;
+                margin: 0 auto;
+                background-color: #ffffff;
+                border-radius: 10px;
+                overflow: hidden;
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            }
+            .header {
+                background-color: #007AFF;
+                padding: ${bannerUrl ? '0' : '20px'};
+                text-align: center;
+            }
+            .banner {
+                width: 100%;
+                max-height: 200px;
+                object-fit: cover;
+                border-radius: 0;
+            }
+            .header-title {
+                color: white;
+                font-size: 24px;
+                margin: 0;
+                padding: 20px;
+            }
+            .content {
+                padding: 30px;
+                color: #333333;
+            }
+            .subject {
+                color: #007AFF;
+                font-size: 24px;
+                margin-top: 0;
+                margin-bottom: 20px;
+                font-weight: bold;
+            }
+            .message {
+                color: #555555;
+                font-size: 16px;
+                line-height: 1.8;
+                white-space: pre-line;
+            }
+            .divider {
+                height: 1px;
+                background-color: #eeeeee;
+                margin: 30px 0;
+            }
+            .sender-info {
+                background-color: #f9f9f9;
+                padding: 20px;
+                border-radius: 8px;
+                border-left: 4px solid #007AFF;
+                margin-top: 30px;
+            }
+            .footer {
+                background-color: #2c3e50;
+                color: #ffffff;
+                padding: 25px;
+                text-align: center;
+            }
+            .contact-info {
+                margin-bottom: 15px;
+                font-size: 14px;
+            }
+            .phone-numbers {
+                font-weight: bold;
+                color: #007AFF;
+                margin: 10px 0;
+                line-height: 1.8;
+            }
+            .copyright {
+                font-size: 12px;
+                color: #95a5a6;
+                margin-top: 15px;
+                border-top: 1px solid #34495e;
+                padding-top: 15px;
+            }
+            .youpi-badge {
+                display: inline-block;
+                background-color: #007AFF;
+                color: white;
+                padding: 5px 15px;
+                border-radius: 20px;
+                font-size: 12px;
+                margin-top: 10px;
+            }
+            @media (max-width: 600px) {
+                .content {
+                    padding: 20px;
+                }
+                .subject {
+                    font-size: 20px;
+                }
+                .message {
+                    font-size: 14px;
+                }
+                .phone-numbers {
+                    font-size: 14px;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <div class="email-container">
+            <!-- HEADER AVEC BANNIÈRE -->
+            <div class="header">
+                ${bannerUrl ? 
+                  `<img src="${bannerUrl}" 
+                        alt="Bannière Youpi Mail" 
+                        class="banner"
+                        style="display: block; width: 100%;">` : 
+                  `<h1 class="header-title">✉️ Youpi Mail</h1>`}
+            </div>
+            
+            <!-- CONTENU PRINCIPAL -->
+            <div class="content">
+                <h1 class="subject">${subject}</h1>
+                
+                <div class="message">
+                    ${message.replace(/\n/g, '<br>')}
+                </div>
+                
+                <div class="divider"></div>
+                
+                <!-- INFO EXPÉDITEUR -->
+                <div class="sender-info">
+                    <p><strong>Expéditeur :</strong> ${userEmail}</p>
+                    <div class="youpi-badge">Envoyé via Youpi Mail</div>
+                </div>
+            </div>
+            
+            <!-- FOOTER AVEC COORDONNÉES -->
+            <div class="footer">
+                <div class="contact-info">
+                    <p>Besoin d'aide ? Contactez-nous :</p>
+                    <div class="phone-numbers">
+                        +243 856 163 550<br>
+                        +243 834 171 852
+                    </div>
+                </div>
+                
+                <div class="copyright">
+                    © ${new Date().getFullYear()} Youpi Mail. Tous droits réservés.<br>
+                    <small>Service d'envoi d'emails professionnels</small>
+                </div>
+            </div>
         </div>
-        <div style="padding: 30px;">
-          <h2 style="color: #333; margin-top: 0;">${subject}</h2>
-          <div style="color: #555; line-height: 1.6; white-space: pre-line;">${message.replace(/\n/g, '<br>')}</div>
-          <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
-          <p style="color: #888; font-size: 0.9em;">
-            <strong>Expéditeur :</strong> ${userEmail}<br>
-            <em>Envoyé via Youpi Mail avec SendGrid API.</em>
-          </p>
-        </div>
-      </div>
-    `;
+    </body>
+    </html>`;
 
     // ENVOI VIA SENDGRID WEB API
     console.log("⏳ Tentative d'envoi via SendGrid Web API...");
@@ -420,7 +618,7 @@ app.post("/api/emails/send", async (req, res) => {
       text: message,
       html: htmlContent,
       replyTo: userEmail,
-      senderName: 'Youpi.'
+      senderName: 'Youpi Mail'
     };
 
     const sendStartTime = Date.now();
@@ -446,7 +644,8 @@ app.post("/api/emails/send", async (req, res) => {
       subject: subject,
       processingTime: `${totalTime}ms`,
       sendMethod: "SendGrid Web API (HTTPS)",
-      requestId: requestId
+      requestId: requestId,
+      bannerUsed: bannerUrl ? true : false
     });
 
   } catch (error) {
@@ -580,7 +779,7 @@ app.use((err, req, res, next) => {
 // ===== DÉMARRAGE =====
 const server = app.listen(PORT, HOST, () => {
   console.log("\n" + "=".repeat(70));
-  console.log("🚀 YOUPI MAIL API AVEC SENDGRID WEB API - DÉMARRÉE AVEC SUCCÈS");
+  console.log("🚀 YOUPI MAIL - DÉMARRÉE AVEC SUCCÈS");
   console.log("=".repeat(70));
   console.log(`🌐 URL Publique: https://system-mail-youpi-backend.onrender.com`);
   console.log(`🔧 Port Serveur: ${PORT}`);
@@ -589,6 +788,23 @@ const server = app.listen(PORT, HOST, () => {
   console.log(`📧 SendGrid Config: ${process.env.SENDGRID_API_KEY ? '✅ API Key présente' : '❌ API Key MANQUANTE'}`);
   console.log(`📧 Expéditeur Config: ${process.env.SMTP_SENDER ? `✅ ${process.env.SMTP_SENDER}` : '❌ NON CONFIGURÉ'}`);
   console.log(`📡 Méthode d'envoi: SendGrid Web API (HTTPS - Port 443)`);
+  
+  // Créer le dossier assets s'il n'existe pas
+  const assetsPath = path.join(__dirname, 'assets');
+  if (!fs.existsSync(assetsPath)) {
+    fs.mkdirSync(assetsPath, { recursive: true });
+    console.log(`📁 Dossier assets créé: ${assetsPath}`);
+  }
+  
+  // Vérifier si l'image bannière existe
+  const bannerPath = path.join(assetsPath, 'banniere.jpg');
+  if (fs.existsSync(bannerPath)) {
+    console.log(`🖼️  Image bannière trouvée: /assets/banniere.jpg`);
+    console.log(`   URL accessible: ${process.env.BASE_URL || `http://localhost:${PORT}`}/assets/banniere.jpg`);
+  } else {
+    console.warn(`⚠️  Image bannière non trouvée: /assets/banniere.jpg`);
+    console.warn(`   Placez votre image de bannière dans: ${bannerPath}`);
+  }
   
   // Test de connexion SendGrid au démarrage
   if (process.env.SENDGRID_API_KEY && process.env.SMTP_SENDER) {
