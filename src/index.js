@@ -1,4 +1,4 @@
-const nodemailer = require('nodemailer');
+const sgMail = require('@sendgrid/mail'); // <-- REMPLACÉ ICI
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
@@ -7,10 +7,10 @@ const app = express();
 const PORT = process.env.PORT || 5001;
 const HOST = '0.0.0.0';
 
-// ===== CONFIGURATION NODEMAILER POUR SENDGRID =====
-const createSendGridTransporter = () => {
+// ===== CONFIGURATION SENDGRID API (WEB API) =====
+const initializeSendGridClient = () => {
   console.log("=".repeat(60));
-  console.log("🔄 INITIALISATION TRANSPORTEUR SENDGRID");
+  console.log("🔄 INITIALISATION CLIENT SENDGRID API");
   console.log("=".repeat(60));
   
   // Vérification DÉTAILLÉE des variables
@@ -43,50 +43,70 @@ const createSendGridTransporter = () => {
     console.error('⚠️ ATTENTION: SMTP_SENDER n\'est pas un email valide');
   }
   
-  console.log("⚙️  Création transporteur avec timeout...");
+  console.log("⚙️  Configuration du client SendGrid API...");
   
   try {
-    const transporter = nodemailer.createTransport({
-      host: 'smtp.sendgrid.net',
-      port: 587,
-      secure: false,
-      auth: {
-        user: "apikey", // TOUJOURS 'apikey' pour SendGrid
-        pass: process.env.SENDGRID_API_KEY
-      },
-      // Timeouts STRICTES pour éviter les blocages
-      connectionTimeout: 10000,  // 10s max pour se connecter
-      greetingTimeout: 10000,    // 10s max pour salutation
-      socketTimeout: 15000,      // 15s max pour opérations socket
-      // Debug activé pour voir la conversation SMTP
-      debug: true, // TOUJOURS activé pour le diagnostic
-      logger: true
-    });
+    // Configuration unique du client SendGrid
+    sgMail.setApiKey(process.env.SENDGRID_API_KEY);
     
-    console.log("✅ Transporteur SendGrid créé avec succès");
+    console.log("✅ Client SendGrid API initialisé avec succès");
     console.log("=".repeat(60));
     
-    return transporter;
+    return sgMail;
   } catch (transportError) {
-    console.error("❌ ERREUR création transporteur Nodemailer:", transportError.message);
+    console.error("❌ ERREUR initialisation client SendGrid:", transportError.message);
     console.error("❌ Stack:", transportError.stack);
     throw transportError;
   }
 };
 
-// Créer le transporteur une seule fois
-let transporterInstance = null;
-const getSendGridTransporter = () => {
-  if (!transporterInstance) {
+// Initialiser le client une seule fois
+let sendGridClient = null;
+const getSendGridClient = () => {
+  if (!sendGridClient) {
     try {
-      transporterInstance = createSendGridTransporter();
+      sendGridClient = initializeSendGridClient();
     } catch (error) {
-      console.error("💥 ERREUR FATALE: Impossible de créer le transporteur SendGrid");
-      transporterInstance = null;
+      console.error("💥 ERREUR FATALE: Impossible de créer le client SendGrid API");
+      sendGridClient = null;
       throw error;
     }
   }
-  return transporterInstance;
+  return sendGridClient;
+};
+
+// Fonction pour envoyer un email via l'API SendGrid
+const sendEmailViaAPI = async (emailData) => {
+  const client = getSendGridClient();
+  
+  // Construction du message selon le format SendGrid API
+  const msg = {
+    to: emailData.to,
+    from: {
+      email: process.env.SMTP_SENDER,
+      name: emailData.senderName || 'Youpi Mail'
+    },
+    subject: emailData.subject,
+    text: emailData.text,
+    html: emailData.html,
+    replyTo: emailData.replyTo || process.env.SMTP_SENDER,
+  };
+  
+  try {
+    const response = await client.send(msg);
+    return {
+      success: true,
+      messageId: response[0].headers['x-message-id'],
+      statusCode: response[0].statusCode,
+      headers: response[0].headers
+    };
+  } catch (error) {
+    console.error("❌ Erreur SendGrid API:", error.message);
+    if (error.response) {
+      console.error("❌ Détails:", JSON.stringify(error.response.body, null, 2));
+    }
+    throw error;
+  }
 };
 
 // ===== MIDDLEWARES =====
@@ -136,11 +156,11 @@ app.use((req, res, next) => {
 // ===== ROUTE RACINE =====
 app.get("/", (req, res) => {
   res.json({
-    message: "🚀 Youpi Mail API avec SendGrid",
+    message: "🚀 Youpi Mail API avec SendGrid API",
     status: "online",
-    version: "1.0.0",
+    version: "2.0.0",
     timestamp: new Date().toISOString(),
-    emailProvider: "SendGrid",
+    emailProvider: "SendGrid Web API",
     server: "https://system-mail-youpi-backend.onrender.com",
     endpoints: {
       health: "GET /api/health",
@@ -161,16 +181,17 @@ app.get("/", (req, res) => {
 app.get("/api/health", (req, res) => {
   const sendGridStatus = process.env.SENDGRID_API_KEY ? {
     configured: true,
+    method: "Web API (HTTPS)",
     keyLength: process.env.SENDGRID_API_KEY.length,
     sender: process.env.SMTP_SENDER || 'Non configuré'
-  } : { configured: false };
+  } : { configured: false, method: "N/A" };
   
   res.json({
     status: "OK",
     timestamp: new Date().toISOString(),
     service: "Youpi Mail Backend",
     uptime: process.uptime(),
-    emailProvider: "SendGrid",
+    emailProvider: "SendGrid Web API",
     sendGrid: sendGridStatus,
     memory: {
       heapUsed: `${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2)} MB`,
@@ -274,10 +295,9 @@ app.post("/api/auth/google", (req, res) => {
         fullName: userInfo?.name || "Utilisateur Google",
         picture: userInfo?.photo || "https://ui-avatars.com/api/?name=" + encodeURIComponent(userInfo?.name || "User"),
       },
-      smtpCredentials: {
-        server: "smtp.gmail.com",
-        port: 587,
-        username: userInfo?.email || "test@example.com",
+      sendGridConfig: {
+        method: "Web API",
+        sender: process.env.SMTP_SENDER || "Non configuré"
       },
       token: googleToken,
     });
@@ -312,7 +332,7 @@ app.get("/api/templates/preview", (req, res) => {
   }
 });
 
-// 6. Route d'envoi d'email - VERSION AMÉLIORÉE avec LOGS DÉTAILLÉS
+// 6. Route d'envoi d'email - VERSION MIGRÉE vers SendGrid Web API
 app.post("/api/emails/send", async (req, res) => {
   const startTime = Date.now();
   const requestId = Date.now().toString(36) + Math.random().toString(36).substr(2);
@@ -356,169 +376,114 @@ app.post("/api/emails/send", async (req, res) => {
 
     console.log("✅ Validation réussie en", Date.now() - startTime, "ms");
     
-    // VÉRIFICATION CRITIQUE DU TRANSPORTEUR
-    console.log("🔄 Récupération transporteur SendGrid...");
-    let transporter;
+    // VÉRIFICATION CRITIQUE DU CLIENT SENDGRID
+    console.log("🔄 Récupération client SendGrid API...");
+    let client;
     try {
-      transporter = getSendGridTransporter();
-      console.log("✅ Transporteur récupéré");
-    } catch (transporterError) {
-      console.error("❌ ERREUR TRANSPORTEUR:", transporterError.message);
-      throw new Error(`Configuration SendGrid invalide: ${transporterError.message}`);
+      client = getSendGridClient();
+      console.log("✅ Client SendGrid API récupéré");
+    } catch (clientError) {
+      console.error("❌ ERREUR CLIENT SENDGRID:", clientError.message);
+      throw new Error(`Configuration SendGrid invalide: ${clientError.message}`);
     }
     
     const senderEmail = process.env.SMTP_SENDER;
-    console.log(`📤 Préparation email de: ${senderEmail} → ${to}`);
+    console.log(`📤 Préparation email via API Web: ${senderEmail} → ${to}`);
     console.log(`   Reply-To: ${userEmail}`);
     
-    // Préparation de l'email
-    const mailOptions = {
-      from: `"Youpi Mail" <${senderEmail}>`,
-      replyTo: userEmail,
+    // Génération du HTML selon le destinator
+    let htmlContent = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #eaeaea; border-radius: 10px; overflow: hidden;">
+        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; text-align: center;">
+          <h1 style="margin: 0;">✉️ Youpi Mail</h1>
+          <p style="margin: 5px 0 0; opacity: 0.9;">Email envoyé via votre application</p>
+        </div>
+        <div style="padding: 30px;">
+          <h2 style="color: #333; margin-top: 0;">${subject}</h2>
+          <div style="color: #555; line-height: 1.6; white-space: pre-line;">${message.replace(/\n/g, '<br>')}</div>
+          <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
+          <p style="color: #888; font-size: 0.9em;">
+            <strong>Expéditeur :</strong> ${userEmail}<br>
+            <em>Envoyé via Youpi Mail avec SendGrid API.</em>
+          </p>
+        </div>
+      </div>
+    `;
+
+    // ENVOI VIA SENDGRID WEB API
+    console.log("⏳ Tentative d'envoi via SendGrid Web API...");
+    console.log("   Méthode: HTTPS (port 443) - Pas de timeout SMTP!");
+    
+    const emailData = {
       to: to,
       subject: subject,
       text: message,
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #eaeaea; border-radius: 10px; overflow: hidden;">
-          <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; text-align: center;">
-            <h1 style="margin: 0;">✉️ Youpi Mail</h1>
-            <p style="margin: 5px 0 0; opacity: 0.9;">Email envoyé via votre application</p>
-          </div>
-          <div style="padding: 30px;">
-            <h2 style="color: #333; margin-top: 0;">${subject}</h2>
-            <div style="color: #555; line-height: 1.6; white-space: pre-line;">${message.replace(/\n/g, '<br>')}</div>
-            <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
-            <p style="color: #888; font-size: 0.9em;">
-              <strong>Expéditeur :</strong> ${userEmail}<br>
-              <em>Envoyé via Youpi Mail avec SendGrid.</em>
-            </p>
-          </div>
-        </div>
-      `
+      html: htmlContent,
+      replyTo: userEmail,
+      senderName: 'Youpi Mail System'
     };
 
-    // ENVOI AVEC TIMEOUT ET LOGS DÉTAILLÉS
-    console.log("⏳ Tentative d'envoi via SendGrid...");
-    console.log("   Timeout configuré: 15 secondes");
+    const sendStartTime = Date.now();
+    const result = await sendEmailViaAPI(emailData);
+    const sendTime = Date.now() - sendStartTime;
     
-    const sendWithTimeout = () => {
-      return new Promise((resolve, reject) => {
-        const timeoutId = setTimeout(() => {
-          console.error("⏰ TIMEOUT: SendGrid n'a pas répondu après 15 secondes");
-          reject(new Error("Timeout: SendGrid n'a pas répondu après 15 secondes"));
-        }, 15000);
-        
-        console.log("   📤 Appel à transporter.sendMail()...");
-        
-        transporter.sendMail(mailOptions, (error, info) => {
-          clearTimeout(timeoutId);
-          
-          if (error) {
-            console.error("   ❌ ERREUR SENGRID DÉTAILLÉE:");
-            console.error("      Message:", error.message);
-            console.error("      Code:", error.code || "N/A");
-            console.error("      Command:", error.command || "N/A");
-            console.error("      Response Code:", error.responseCode || "N/A");
-            console.error("      Response:", error.response || "N/A");
-            
-            if (error.response) {
-              console.error("      Réponse brute:", error.response.substring(0, 200));
-            }
-            
-            reject(error);
-          } else {
-            console.log("   ✅ SUCCÈS SENGRID:");
-            console.log("      Message ID:", info.messageId || "N/A");
-            console.log("      Response:", info.response ? info.response.substring(0, 100) + "..." : "N/A");
-            console.log("      Accepted:", info.accepted ? info.accepted.join(", ") : "N/A");
-            console.log("      Rejected:", info.rejected ? info.rejected.join(", ") : "Aucun");
-            resolve(info);
-          }
-        });
-      });
-    };
-
-    const info = await sendWithTimeout();
-    const totalTime = Date.now() - startTime;
-    
-    console.log(`🎉 EMAIL ENVOYÉ AVEC SUCCÈS en ${totalTime}ms`);
+    console.log(`✅ EMAIL ENVOYÉ AVEC SUCCÈS en ${sendTime}ms`);
+    console.log(`   Message ID: ${result.messageId || 'N/A'}`);
+    console.log(`   Status Code: ${result.statusCode}`);
     console.log("=".repeat(70) + "\n");
+    
+    const totalTime = Date.now() - startTime;
     
     // Réponse au client
     res.json({
       success: true,
-      messageId: info.messageId,
+      messageId: result.messageId,
       timestamp: new Date().toISOString(),
-      details: `Email envoyé avec succès de "${senderEmail}" à "${to}"`,
+      details: `Email envoyé avec succès de "${senderEmail}" à "${to}" via SendGrid Web API`,
       from: senderEmail,
       replyTo: userEmail,
       to: to,
       subject: subject,
       processingTime: `${totalTime}ms`,
-      simulated: false,
-      provider: "SendGrid",
+      sendMethod: "SendGrid Web API (HTTPS)",
       requestId: requestId
     });
 
   } catch (error) {
     const totalTime = Date.now() - startTime;
     
-    console.error("\n💥💥💥 ERREUR CRITIQUE DANS /api/emails/send 💥💥💥");
+    console.error("\n💥💥💥 ERREUR D'ENVOI EMAIL 💥💥💥");
     console.error("   Temps écoulé:", totalTime, "ms");
     console.error("   Request ID:", requestId);
     console.error("   Message:", error.message);
-    console.error("   Stack:", error.stack);
-    
-    // Analyse détaillée de l'erreur SendGrid
-    if (error.code) {
-      console.error("   Code erreur:", error.code);
-    }
-    if (error.command) {
-      console.error("   Commande:", error.command);
-    }
-    if (error.responseCode) {
-      console.error("   Code réponse:", error.responseCode);
-    }
-    if (error.response) {
-      console.error("   Réponse SendGrid:", error.response.substring(0, 500));
-    }
-    
-    console.error("=".repeat(70) + "\n");
     
     // Messages d'erreur utilisateur selon le type
     let userMessage = "Échec de l'envoi de l'email";
     let statusCode = 500;
     let details = null;
     
-    if (error.message.includes("Timeout")) {
-      userMessage = "SendGrid est trop lent à répondre. Veuillez réessayer.";
-      statusCode = 504; // Gateway Timeout
-    } else if (error.code === 'EAUTH') {
-      userMessage = "Erreur d'authentification SendGrid.";
-      details = "Vérifiez que votre clé API SendGrid est valide et active.";
-    } else if (error.code === 'EENVELOPE') {
-      userMessage = "Erreur dans les adresses email.";
-      statusCode = 400;
-      details = "Vérifiez le format des adresses email (expéditeur et destinataire).";
-    } else if (error.message.includes('SENDGRID_API_KEY')) {
-      userMessage = "Configuration SendGrid manquante.";
-      details = "Configurez SENDGRID_API_KEY et SMTP_SENDER sur Render.";
-    } else if (error.response && error.response.includes('Unauthorized')) {
-      userMessage = "Accès refusé par SendGrid.";
-      details = "Clé API SendGrid invalide ou expirée.";
-    } else if (error.response && error.response.includes('sender identity')) {
-      userMessage = "Expéditeur non autorisé.";
-      details = "L'email SMTP_SENDER doit être vérifié dans votre compte SendGrid.";
+    if (error.message.includes("API key")) {
+      userMessage = "Clé API SendGrid invalide";
+      details = "Vérifiez que votre SENDGRID_API_KEY est correcte et active.";
+    } else if (error.response && error.response.statusCode === 401) {
+      userMessage = "Non autorisé";
+      details = "La clé API SendGrid est incorrecte ou expirée.";
+    } else if (error.response && error.response.statusCode === 403) {
+      userMessage = "Accès interdit";
+      details = "Vérifiez que l'expéditeur est autorisé dans votre compte SendGrid.";
+    } else if (error.message.includes("sender")) {
+      userMessage = "Expéditeur non autorisé";
+      details = "L'adresse SMTP_SENDER doit être vérifiée dans SendGrid.";
+    } else {
+      userMessage = "Erreur lors de l'envoi de l'email";
     }
     
-    // Toujours retourner l'erreur technique en développement
-    const technicalError = process.env.NODE_ENV === 'development' ? error.message : undefined;
+    console.error("=".repeat(70) + "\n");
     
     res.status(statusCode).json({
       success: false,
       error: userMessage,
       details: details,
-      technicalError: technicalError,
       processingTime: `${totalTime}ms`,
       timestamp: new Date().toISOString(),
       requestId: requestId
@@ -615,7 +580,7 @@ app.use((err, req, res, next) => {
 // ===== DÉMARRAGE =====
 const server = app.listen(PORT, HOST, () => {
   console.log("\n" + "=".repeat(70));
-  console.log("🚀 YOUPI MAIL API AVEC SENDGRID - DÉMARRÉE AVEC SUCCÈS");
+  console.log("🚀 YOUPI MAIL API AVEC SENDGRID WEB API - DÉMARRÉE AVEC SUCCÈS");
   console.log("=".repeat(70));
   console.log(`🌐 URL Publique: https://system-mail-youpi-backend.onrender.com`);
   console.log(`🔧 Port Serveur: ${PORT}`);
@@ -623,13 +588,15 @@ const server = app.listen(PORT, HOST, () => {
   console.log(`⚡ Environnement: ${process.env.NODE_ENV || 'development'}`);
   console.log(`📧 SendGrid Config: ${process.env.SENDGRID_API_KEY ? '✅ API Key présente' : '❌ API Key MANQUANTE'}`);
   console.log(`📧 Expéditeur Config: ${process.env.SMTP_SENDER ? `✅ ${process.env.SMTP_SENDER}` : '❌ NON CONFIGURÉ'}`);
+  console.log(`📡 Méthode d'envoi: SendGrid Web API (HTTPS - Port 443)`);
   
   // Test de connexion SendGrid au démarrage
   if (process.env.SENDGRID_API_KEY && process.env.SMTP_SENDER) {
-    console.log("\n🔍 Test de connexion SendGrid au démarrage...");
+    console.log("\n🔍 Test de configuration SendGrid API...");
     try {
-      const transporter = getSendGridTransporter();
-      console.log("✅ SendGrid: Transporteur initialisé avec succès");
+      const client = getSendGridClient();
+      console.log("✅ SendGrid: Client API initialisé avec succès");
+      console.log("✅ IMPORTANT: Pas de timeout SMTP - Utilisation HTTPS (port 443)");
     } catch (error) {
       console.error(`❌ SendGrid: Échec initialisation - ${error.message}`);
     }
