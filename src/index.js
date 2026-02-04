@@ -420,7 +420,7 @@ app.post("/api/emails/send", async (req, res) => {
       text: message,
       html: htmlContent,
       replyTo: userEmail,
-      senderName: 'Youpi Mail System'
+      senderName: 'Youpi.'
     };
 
     const sendStartTime = Date.now();
