@@ -111,34 +111,57 @@ const sendEmailViaAPI = async (emailData) => {
   }
 };
 
-// Fonction pour vérifier si une image de bannière existe
-const getBannerImageUrl = () => {
-  const assetsPath = path.join(__dirname, 'assets');
-  const bannerPath = path.join(assetsPath, 'banniere.jpg');
-  
-  if (fs.existsSync(bannerPath)) {
-    const baseUrl = process.env.BASE_URL || `http://localhost:${PORT}`;
-    return `${baseUrl}/assets/banniere.jpg`;
-  } else {
-    console.warn("⚠️ Image bannière non trouvée dans /assets/banniere.jpg");
+// Fonction pour encoder l'image en Base64
+const getBannerImageBase64 = () => {
+  try {
+    const assetsPath = path.join(__dirname, 'assets');
     
-    // Retourner une image par défaut ou null
-    const defaultImages = [
-      'banniere.png',
-      'banner.jpg',
-      'banner.png',
-      'header.jpg',
-      'header.png'
+    // Liste des fichiers à rechercher (par ordre de priorité)
+    const possibleFiles = [
+      'banniere.jpg', 'banniere.png', 'banniere.jpeg',
+      'banner.jpg', 'banner.png', 'banner.jpeg',
+      'header.jpg', 'header.png', 'header.jpeg',
+      'baniere.png', 'baniere.jpg', 'baniere.jpeg'  // Ajout de votre nom de fichier
     ];
     
-    for (const img of defaultImages) {
-      const testPath = path.join(assetsPath, img);
-      if (fs.existsSync(testPath)) {
-        const baseUrl = process.env.BASE_URL || `http://localhost:${PORT}`;
-        return `${baseUrl}/assets/${img}`;
+    let imageFound = null;
+    let imageExtension = 'jpg';
+    
+    // Rechercher le fichier d'image
+    for (const file of possibleFiles) {
+      const filePath = path.join(assetsPath, file);
+      if (fs.existsSync(filePath)) {
+        imageFound = filePath;
+        imageExtension = path.extname(file).toLowerCase().substring(1); // .jpg -> jpg
+        console.log(`✅ Image trouvée: ${file} (${imageExtension})`);
+        break;
       }
     }
     
+    if (!imageFound) {
+      console.warn("⚠️ Aucune image de bannière trouvée dans /assets/");
+      return null;
+    }
+    
+    // Lire et encoder l'image en Base64
+    const imageBuffer = fs.readFileSync(imageFound);
+    const base64Image = imageBuffer.toString('base64');
+    
+    // Déterminer le type MIME correct
+    const mimeTypes = {
+      'jpg': 'image/jpeg',
+      'jpeg': 'image/jpeg',
+      'png': 'image/png',
+      'gif': 'image/gif',
+      'webp': 'image/webp'
+    };
+    
+    const mimeType = mimeTypes[imageExtension] || 'image/jpeg';
+    
+    return `data:${mimeType};base64,${base64Image}`;
+    
+  } catch (error) {
+    console.error("❌ Erreur lors du chargement de l'image:", error.message);
     return null;
   }
 };
@@ -223,10 +246,16 @@ app.get("/api/health", (req, res) => {
     sender: process.env.SMTP_SENDER || 'Non configuré'
   } : { configured: false, method: "N/A" };
   
-  // Vérifier si l'image bannière existe
-  const assetsPath = path.join(__dirname, 'assets');
-  const bannerPath = path.join(assetsPath, 'banniere.jpg');
-  const bannerExists = fs.existsSync(bannerPath);
+  // Tester si une image de bannière est disponible
+  const base64Image = getBannerImageBase64();
+  const bannerInfo = base64Image ? {
+    exists: true,
+    format: "Base64 (inline dans l'email)",
+    size: `${Math.round(base64Image.length / 1024)} KB`
+  } : {
+    exists: false,
+    format: "Non disponible"
+  };
   
   res.json({
     status: "OK",
@@ -235,11 +264,7 @@ app.get("/api/health", (req, res) => {
     uptime: process.uptime(),
     emailProvider: "SendGrid Web API",
     sendGrid: sendGridStatus,
-    banner: {
-      exists: bannerExists,
-      path: bannerExists ? '/assets/baniere.png' : null,
-      accessible: bannerExists ? `${process.env.BASE_URL || `http://localhost:${PORT}`}/assets/baniere.png` : null
-    },
+    banner: bannerInfo,
     memory: {
       heapUsed: `${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2)} MB`,
       heapTotal: `${(process.memoryUsage().heapTotal / 1024 / 1024).toFixed(2)} MB`,
@@ -379,7 +404,7 @@ app.get("/api/templates/preview", (req, res) => {
   }
 });
 
-// 6. Route d'envoi d'email - VERSION MIGRÉE vers SendGrid Web API
+// 6. Route d'envoi d'email - VERSION AVEC IMAGE BASE64
 app.post("/api/emails/send", async (req, res) => {
   const startTime = Date.now();
   const requestId = Date.now().toString(36) + Math.random().toString(36).substr(2);
@@ -438,9 +463,15 @@ app.post("/api/emails/send", async (req, res) => {
     console.log(`📤 Préparation email via API Web: ${senderEmail} → ${to}`);
     console.log(`   Reply-To: ${userEmail}`);
     
-    // Obtenir l'URL de la bannière
-    const bannerUrl = getBannerImageUrl();
-    console.log(`🖼️  URL bannière: ${bannerUrl || 'Non disponible'}`);
+    // OBTENIR L'IMAGE EN BASE64
+    console.log("🖼️  Chargement de l'image en Base64...");
+    const base64Image = getBannerImageBase64();
+    
+    if (base64Image) {
+      console.log(`✅ Image chargée avec succès (${Math.round(base64Image.length / 1024)} KB)`);
+    } else {
+      console.log("ℹ️  Aucune image disponible, utilisation du titre par défaut");
+    }
     
     // Génération du HTML selon le destinator
     let htmlContent = `
@@ -468,7 +499,7 @@ app.post("/api/emails/send", async (req, res) => {
             }
             .header {
                 background-color: #007AFF;
-                padding: ${bannerUrl ? '0' : '20px'};
+                ${base64Image ? 'padding: 0;' : 'padding: 20px;'}
                 text-align: center;
             }
             .banner {
@@ -476,6 +507,7 @@ app.post("/api/emails/send", async (req, res) => {
                 max-height: 200px;
                 object-fit: cover;
                 border-radius: 0;
+                display: block;
             }
             .header-title {
                 color: white;
@@ -562,13 +594,12 @@ app.post("/api/emails/send", async (req, res) => {
     </head>
     <body>
         <div class="email-container">
-            <!-- HEADER AVEC BANNIÈRE -->
+            <!-- HEADER AVEC BANNIÈRE EN BASE64 -->
             <div class="header">
-                ${bannerUrl ? 
-                  `<img src="${bannerUrl}" 
+                ${base64Image ? 
+                  `<img src="${base64Image}" 
                         alt="Bannière Youpi Mail" 
-                        class="banner"
-                        style="display: block; width: 100%;">` : 
+                        class="banner">` : 
                   `<h1 class="header-title">✉️ Youpi Mail</h1>`}
             </div>
             
@@ -610,7 +641,8 @@ app.post("/api/emails/send", async (req, res) => {
 
     // ENVOI VIA SENDGRID WEB API
     console.log("⏳ Tentative d'envoi via SendGrid Web API...");
-    console.log("   Méthode: HTTPS (port 443) - Pas de timeout SMTP!");
+    console.log("   Méthode: HTTPS (port 443)");
+    console.log("   Image: ${base64Image ? 'Intégrée (Base64)' : 'Titre par défaut'}");
     
     const emailData = {
       to: to,
@@ -644,8 +676,8 @@ app.post("/api/emails/send", async (req, res) => {
       subject: subject,
       processingTime: `${totalTime}ms`,
       sendMethod: "SendGrid Web API (HTTPS)",
-      requestId: requestId,
-      bannerUsed: bannerUrl ? true : false
+      imageMethod: base64Image ? "Base64 (Intégrée)" : "Titre par défaut",
+      requestId: requestId
     });
 
   } catch (error) {
@@ -779,7 +811,7 @@ app.use((err, req, res, next) => {
 // ===== DÉMARRAGE =====
 const server = app.listen(PORT, HOST, () => {
   console.log("\n" + "=".repeat(70));
-  console.log("🚀 YOUPI MAIL - DÉMARRÉE AVEC SUCCÈS");
+  console.log("🚀 YOUPI MAIL API AVEC SENDGRID WEB API - DÉMARRÉE AVEC SUCCÈS");
   console.log("=".repeat(70));
   console.log(`🌐 URL Publique: https://system-mail-youpi-backend.onrender.com`);
   console.log(`🔧 Port Serveur: ${PORT}`);
@@ -796,14 +828,38 @@ const server = app.listen(PORT, HOST, () => {
     console.log(`📁 Dossier assets créé: ${assetsPath}`);
   }
   
-  // Vérifier si l'image bannière existe
-  const bannerPath = path.join(assetsPath, 'banniere.jpg');
-  if (fs.existsSync(bannerPath)) {
-    console.log(`🖼️  Image bannière trouvée: /assets/banniere.jpg`);
-    console.log(`   URL accessible: ${process.env.BASE_URL || `http://localhost:${PORT}`}/assets/banniere.jpg`);
+  // Vérifier si des images sont disponibles
+  console.log("\n🔍 Recherche d'images dans /assets/");
+  const possibleFiles = [
+    'banniere.jpg', 'banniere.png', 'banniere.jpeg',
+    'banner.jpg', 'banner.png', 'banner.jpeg',
+    'header.jpg', 'header.png', 'header.jpeg',
+    'baniere.png', 'baniere.jpg', 'baniere.jpeg'
+  ];
+  
+  let imageFound = false;
+  for (const file of possibleFiles) {
+    const filePath = path.join(assetsPath, file);
+    if (fs.existsSync(filePath)) {
+      const stats = fs.statSync(filePath);
+      console.log(`✅ Image trouvée: /assets/${file} (${Math.round(stats.size / 1024)} KB)`);
+      imageFound = true;
+      break;
+    }
+  }
+  
+  if (!imageFound) {
+    console.warn("⚠️  Aucune image de bannière trouvée dans /assets/");
+    console.warn("   Placez votre image (banniere.jpg, banniere.png, etc.) dans le dossier assets");
+  }
+  
+  // Tester le chargement Base64
+  console.log("\n🔍 Test de chargement Base64...");
+  const base64Image = getBannerImageBase64();
+  if (base64Image) {
+    console.log(`✅ Base64 fonctionnel: ${Math.round(base64Image.length / 1024)} KB`);
   } else {
-    console.warn(`⚠️  Image bannière non trouvée: /assets/banniere.jpg`);
-    console.warn(`   Placez votre image de bannière dans: ${bannerPath}`);
+    console.log("ℹ️  Aucune image disponible pour le Base64");
   }
   
   // Test de connexion SendGrid au démarrage
