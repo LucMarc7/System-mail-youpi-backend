@@ -4,11 +4,11 @@ const express = require("express");
 const cors = require("cors");
 const path = require("path");
 const fs = require("fs");
-const bcrypt = require('bcrypt'); // Nouveau : Pour hacher les mots de passe
-const { Pool } = require('pg');   // Nouveau : Pour PostgreSQL
+const bcrypt = require('bcrypt');
+const { Pool } = require('pg');
 
 const app = express();
-const PORT = process.env.PORT || 5001;
+const PORT = process.env.PORT || 10000; // Render utilise le port 10000
 const HOST = '0.0.0.0';
 
 // ===== CONFIGURATION DE LA BASE DE DONNÉES =====
@@ -28,19 +28,14 @@ const initializeDatabase = () => {
     dbPool = new Pool({
       connectionString: process.env.DATABASE_URL,
       ssl: {
-        rejectUnauthorized: false // Nécessaire pour Render
-      }
+        rejectUnauthorized: false
+      },
+      max: 20,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 2000
     });
     
-    // Tester la connexion
-    dbPool.query('SELECT NOW()', (err) => {
-      if (err) {
-        console.error('❌ Connexion PostgreSQL échouée:', err.message);
-        throw err;
-      }
-      console.log('✅ PostgreSQL connecté avec succès');
-    });
-    
+    console.log('✅ Pool PostgreSQL créé');
     console.log("=".repeat(60));
     return dbPool;
   } catch (dbError) {
@@ -86,10 +81,31 @@ const getSendGridClient = () => {
   return sendGridClient;
 };
 
+// Fonction pour tester la connexion à la base de données
+const testDatabaseConnection = async () => {
+  try {
+    const client = await dbPool.connect();
+    await client.query('SELECT NOW()');
+    client.release();
+    console.log('✅ PostgreSQL connecté avec succès');
+    return true;
+  } catch (err) {
+    console.error('❌ Connexion PostgreSQL échouée:', err.message);
+    return false;
+  }
+};
+
 const initializeServices = async () => {
   try {
     initializeDatabase();      // 1. Base de données
     getSendGridClient();       // 2. SendGrid
+    
+    // Tester la connexion à la base de données
+    const dbConnected = await testDatabaseConnection();
+    if (!dbConnected) {
+      throw new Error("Impossible de se connecter à la base de données");
+    }
+    
     await createTables();      // 3. Créer les tables
     console.log("🚀 Tous les services sont prêts !");
   } catch (error) {
@@ -120,7 +136,9 @@ const createTables = async () => {
       status VARCHAR(50) DEFAULT 'draft',
       error_detail TEXT,
       sendgrid_message_id VARCHAR(255),
-      created_at TIMESTAMP DEFAULT NOW()
+      folder VARCHAR(50) DEFAULT 'inbox',
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
     );
 
     -- Table pièces jointes
@@ -131,6 +149,11 @@ const createTables = async () => {
       file_url TEXT,
       created_at TIMESTAMP DEFAULT NOW()
     );
+
+    -- Créer un index pour améliorer les performances
+    CREATE INDEX IF NOT EXISTS idx_emails_user_id ON emails(user_id);
+    CREATE INDEX IF NOT EXISTS idx_emails_folder ON emails(folder);
+    CREATE INDEX IF NOT EXISTS idx_emails_created_at ON emails(created_at DESC);
   `;
   
   try {
@@ -167,6 +190,9 @@ const sendEmailViaAPI = async (emailData) => {
     };
   } catch (error) {
     console.error("❌ Erreur SendGrid:", error.message);
+    if (error.response && error.response.body) {
+      console.error("Détails SendGrid:", JSON.stringify(error.response.body, null, 2));
+    }
     throw error;
   }
 };
@@ -175,27 +201,74 @@ const sendEmailViaAPI = async (emailData) => {
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+  credentials: false
 }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use('/assets', express.static(path.join(__dirname, 'assets')));
 
-// Middleware de logging
+// Middleware de logging amélioré
 app.use((req, res, next) => {
   const start = Date.now();
-  const requestId = Date.now().toString(36) + Math.random().toString(36).substr(2);
+  const requestId = Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
   
-  console.log(`\n[${new Date().toISOString()}] ${req.method} ${req.url} [ID:${requestId}]`);
+  console.log(`\n[${new Date().toISOString()}] ${req.method} ${req.originalUrl} [ID:${requestId}]`);
+  if (req.method === 'POST' && req.body && Object.keys(req.body).length > 0) {
+    console.log(`📦 Body:`, Object.keys(req.body).map(k => `${k}: ${typeof req.body[k] === 'string' ? req.body[k].substring(0, 100) + '...' : req.body[k]}`));
+  }
+  
   res.setHeader('X-Request-ID', requestId);
   
-  res.on('finish', () => {
+  const originalSend = res.send;
+  res.send = function(body) {
     const duration = Date.now() - start;
-    console.log(`[${new Date().toISOString()}] ${res.statusCode >= 400 ? '❌' : '✅'} ${req.method} ${req.url} - ${res.statusCode} (${duration}ms)\n`);
-  });
+    const statusEmoji = res.statusCode >= 400 ? '❌' : '✅';
+    console.log(`[${new Date().toISOString()}] ${statusEmoji} ${req.method} ${req.originalUrl} - ${res.statusCode} (${duration}ms)`);
+    originalSend.call(this, body);
+  };
   
   next();
 });
+
+// ===== MIDDLEWARE D'AUTHENTIFICATION SIMPLIFIÉ =====
+const authenticateToken = async (req, res, next) => {
+  try {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+    
+    if (!token) {
+      // Pour les routes GET publiques, continuer sans auth
+      if (req.method === 'GET' && req.path.startsWith('/api/health')) {
+        return next();
+      }
+      return res.status(401).json({ success: false, error: 'Token manquant' });
+    }
+    
+    // Token simple: user_1_123456789
+    const parts = token.split('_');
+    if (parts.length !== 3 || parts[0] !== 'user') {
+      return res.status(401).json({ success: false, error: 'Token invalide' });
+    }
+    
+    const userId = parseInt(parts[1]);
+    if (isNaN(userId)) {
+      return res.status(401).json({ success: false, error: 'Token invalide' });
+    }
+    
+    // Vérifier que l'utilisateur existe
+    const userResult = await dbPool.query('SELECT id FROM users WHERE id = $1', [userId]);
+    if (userResult.rows.length === 0) {
+      return res.status(401).json({ success: false, error: 'Utilisateur non trouvé' });
+    }
+    
+    req.userId = userId;
+    next();
+  } catch (error) {
+    console.error("❌ Erreur authentification:", error);
+    res.status(500).json({ success: false, error: 'Erreur d\'authentification' });
+  }
+};
 
 // ===== ROUTES D'AUTHENTIFICATION =====
 
@@ -236,14 +309,21 @@ app.post("/api/auth/register", async (req, res) => {
       [email, password_hash, name || email.split('@')[0]]
     );
     
-    // Générer un token simple (remplacez par JWT si besoin)
-    const token = `user_${result.rows[0].id}_${Date.now()}`;
+    const user = result.rows[0];
+    
+    // Générer un token simple
+    const token = `user_${user.id}_${Date.now()}`;
     
     res.json({
       success: true,
       message: "Compte créé avec succès",
       token: token,
-      user: result.rows[0]
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        created_at: user.created_at
+      }
     });
     
   } catch (error) {
@@ -298,18 +378,40 @@ app.post("/api/auth/login", async (req, res) => {
   }
 });
 
-// 3. Supprimer un utilisateur
-app.delete("/api/auth/delete/:user_id", async (req, res) => {
+// 3. Obtenir le profil utilisateur
+app.get("/api/auth/profile", authenticateToken, async (req, res) => {
   try {
-    const { user_id } = req.params;
-    const { password } = req.body; // Demander confirmation par mot de passe
+    const result = await dbPool.query(
+      'SELECT id, email, name, created_at FROM users WHERE id = $1',
+      [req.userId]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: "Utilisateur non trouvé" });
+    }
+    
+    res.json({
+      success: true,
+      user: result.rows[0]
+    });
+    
+  } catch (error) {
+    console.error("❌ Erreur récupération profil:", error);
+    res.status(500).json({ success: false, error: "Erreur serveur" });
+  }
+});
+
+// 4. Supprimer un utilisateur
+app.delete("/api/auth/delete", authenticateToken, async (req, res) => {
+  try {
+    const { password } = req.body;
     
     if (!password) {
       return res.status(400).json({ success: false, error: "Mot de passe requis pour suppression" });
     }
     
-    // Vérifier l'utilisateur et son mot de passe
-    const userResult = await dbPool.query('SELECT password_hash FROM users WHERE id = $1', [user_id]);
+    // Vérifier le mot de passe
+    const userResult = await dbPool.query('SELECT password_hash FROM users WHERE id = $1', [req.userId]);
     if (userResult.rows.length === 0) {
       return res.status(404).json({ success: false, error: "Utilisateur non trouvé" });
     }
@@ -319,8 +421,8 @@ app.delete("/api/auth/delete/:user_id", async (req, res) => {
       return res.status(401).json({ success: false, error: "Mot de passe incorrect" });
     }
     
-    // Supprimer l'utilisateur (CASCADE supprimera aussi ses emails)
-    await dbPool.query('DELETE FROM users WHERE id = $1', [user_id]);
+    // Supprimer l'utilisateur
+    await dbPool.query('DELETE FROM users WHERE id = $1', [req.userId]);
     
     res.json({
       success: true,
@@ -335,29 +437,26 @@ app.delete("/api/auth/delete/:user_id", async (req, res) => {
 
 // ===== ROUTES EMAIL =====
 
-// 1. Envoyer un email
-app.post("/api/emails/send", async (req, res) => {
+// 1. Envoyer un email (protégé)
+app.post("/api/emails/send", authenticateToken, async (req, res) => {
   const startTime = Date.now();
-  const requestId = Date.now().toString(36) + Math.random().toString(36).substr(2);
+  const requestId = req.headers['x-request-id'] || Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
   
   console.log(`\n📧 ENVOI EMAIL [ID:${requestId}]`);
   
   try {
-    const { user_id, to, subject, message, userEmail } = req.body;
+    const { to, subject, message, folder = 'sent' } = req.body;
+    const user_id = req.userId;
     
     // Validation
-    if (!user_id || !to || !subject || !message) {
+    if (!to || !subject || !message) {
       return res.status(400).json({
         success: false,
-        error: "Données manquantes: user_id, to, subject et message sont requis"
+        error: "Données manquantes: to, subject et message sont requis"
       });
     }
     
-    // Vérifier que l'utilisateur existe
-    const userResult = await dbPool.query('SELECT id FROM users WHERE id = $1', [user_id]);
-    if (userResult.rows.length === 0) {
-      return res.status(404).json({ success: false, error: "Utilisateur non trouvé" });
-    }
+    console.log(`📤 Envoi email de user ${user_id} à ${to}`);
     
     // Envoyer via SendGrid
     const sendResult = await sendEmailViaAPI({
@@ -365,16 +464,16 @@ app.post("/api/emails/send", async (req, res) => {
       subject: subject,
       text: message,
       html: `<div>${message.replace(/\n/g, '<br>')}</div>`,
-      replyTo: userEmail || process.env.SMTP_SENDER,
+      replyTo: process.env.SMTP_SENDER,
       senderName: 'Youpi Mail'
     });
     
     // Sauvegarder dans la base de données
     const emailResult = await dbPool.query(
-      `INSERT INTO emails (user_id, to_email, subject, content, status, sendgrid_message_id) 
-       VALUES ($1, $2, $3, $4, $5, $6) 
+      `INSERT INTO emails (user_id, to_email, subject, content, status, sendgrid_message_id, folder) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7) 
        RETURNING id, created_at`,
-      [user_id, to, subject, message, 'sent', sendResult.messageId]
+      [user_id, to, subject, message, 'sent', sendResult.messageId, folder]
     );
     
     const totalTime = Date.now() - startTime;
@@ -392,12 +491,12 @@ app.post("/api/emails/send", async (req, res) => {
     const totalTime = Date.now() - startTime;
     
     // En cas d'erreur SendGrid, sauvegarder quand même avec statut 'failed'
-    if (req.body.user_id) {
+    if (req.userId) {
       try {
         await dbPool.query(
-          `INSERT INTO emails (user_id, to_email, subject, content, status, error_detail) 
-           VALUES ($1, $2, $3, $4, $5, $6)`,
-          [req.body.user_id, req.body.to, req.body.subject, req.body.message, 'failed', error.message]
+          `INSERT INTO emails (user_id, to_email, subject, content, status, error_detail, folder) 
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [req.userId, req.body.to, req.body.subject, req.body.message, 'failed', error.message, 'failed']
         );
       } catch (dbError) {
         console.error("❌ Erreur sauvegarde email échoué:", dbError);
@@ -416,28 +515,66 @@ app.post("/api/emails/send", async (req, res) => {
   }
 });
 
-// 2. Récupérer les emails d'un utilisateur
-app.get("/api/emails/:user_id", async (req, res) => {
+// 2. Récupérer les emails d'un utilisateur (protégé)
+app.get("/api/emails", authenticateToken, async (req, res) => {
   try {
-    const { user_id } = req.params;
-    const { status } = req.query; // Optionnel: filtrer par statut
+    const user_id = req.userId;
+    const { page = 1, limit = 50, folder, status, search } = req.query;
+    const offset = (page - 1) * limit;
     
     let query = 'SELECT * FROM emails WHERE user_id = $1';
     const params = [user_id];
+    let paramCount = 2;
     
-    if (status) {
-      query += ' AND status = $2';
-      params.push(status);
+    // Filtrage par dossier
+    if (folder && folder !== 'all') {
+      query += ` AND folder = $${paramCount}`;
+      params.push(folder);
+      paramCount++;
     }
     
-    query += ' ORDER BY created_at DESC';
+    // Filtrage par statut
+    if (status) {
+      query += ` AND status = $${paramCount}`;
+      params.push(status);
+      paramCount++;
+    }
+    
+    // Recherche
+    if (search) {
+      query += ` AND (subject ILIKE $${paramCount} OR content ILIKE $${paramCount} OR to_email ILIKE $${paramCount})`;
+      params.push(`%${search}%`);
+      paramCount++;
+    }
+    
+    // Compter le total
+    const countQuery = query.replace('SELECT *', 'SELECT COUNT(*) as total');
+    const countResult = await dbPool.query(countQuery, params);
+    const total = parseInt(countResult.rows[0].total);
+    
+    // Récupérer les données avec pagination
+    query += ' ORDER BY created_at DESC LIMIT $' + paramCount + ' OFFSET $' + (paramCount + 1);
+    params.push(parseInt(limit), offset);
     
     const result = await dbPool.query(query, params);
     
     res.json({
       success: true,
-      count: result.rows.length,
-      emails: result.rows
+      total: total,
+      page: parseInt(page),
+      limit: parseInt(limit),
+      totalPages: Math.ceil(total / limit),
+      emails: result.rows.map(email => ({
+        id: email.id,
+        to: email.to_email,
+        subject: email.subject,
+        content: email.content,
+        status: email.status,
+        folder: email.folder,
+        createdAt: email.created_at,
+        updatedAt: email.updated_at,
+        errorDetail: email.error_detail
+      }))
     });
     
   } catch (error) {
@@ -446,12 +583,142 @@ app.get("/api/emails/:user_id", async (req, res) => {
   }
 });
 
-// 3. Supprimer un email
-app.delete("/api/emails/:email_id", async (req, res) => {
+// 3. Récupérer un email spécifique (protégé)
+app.get("/api/emails/:email_id", authenticateToken, async (req, res) => {
   try {
     const { email_id } = req.params;
+    const user_id = req.userId;
     
-    const result = await dbPool.query('DELETE FROM emails WHERE id = $1 RETURNING id', [email_id]);
+    const result = await dbPool.query(
+      'SELECT * FROM emails WHERE id = $1 AND user_id = $2',
+      [email_id, user_id]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: "Email non trouvé" });
+    }
+    
+    res.json({
+      success: true,
+      email: result.rows[0]
+    });
+    
+  } catch (error) {
+    console.error("❌ Erreur récupération email:", error);
+    res.status(500).json({ success: false, error: "Erreur serveur" });
+  }
+});
+
+// 4. Créer un brouillon (protégé)
+app.post("/api/emails/draft", authenticateToken, async (req, res) => {
+  try {
+    const { to, subject, content } = req.body;
+    const user_id = req.userId;
+    
+    const result = await dbPool.query(
+      `INSERT INTO emails (user_id, to_email, subject, content, status, folder) 
+       VALUES ($1, $2, $3, $4, $5, $6) 
+       RETURNING *`,
+      [user_id, to || '', subject || '', content || '', 'draft', 'drafts']
+    );
+    
+    res.json({
+      success: true,
+      message: "Brouillon créé",
+      email: result.rows[0]
+    });
+    
+  } catch (error) {
+    console.error("❌ Erreur création brouillon:", error);
+    res.status(500).json({ success: false, error: "Erreur serveur" });
+  }
+});
+
+// 5. Modifier un email (brouillon) (protégé)
+app.put("/api/emails/:email_id", authenticateToken, async (req, res) => {
+  try {
+    const { email_id } = req.params;
+    const user_id = req.userId;
+    const { to, subject, content, folder, status } = req.body;
+    
+    // Vérifier que l'email appartient à l'utilisateur
+    const checkResult = await dbPool.query(
+      'SELECT id FROM emails WHERE id = $1 AND user_id = $2',
+      [email_id, user_id]
+    );
+    
+    if (checkResult.rows.length === 0) {
+      return res.status(404).json({ success: false, error: "Email non trouvé" });
+    }
+    
+    const updates = [];
+    const values = [];
+    let paramCount = 1;
+    
+    if (to !== undefined) {
+      updates.push(`to_email = $${paramCount}`);
+      values.push(to);
+      paramCount++;
+    }
+    
+    if (subject !== undefined) {
+      updates.push(`subject = $${paramCount}`);
+      values.push(subject);
+      paramCount++;
+    }
+    
+    if (content !== undefined) {
+      updates.push(`content = $${paramCount}`);
+      values.push(content);
+      paramCount++;
+    }
+    
+    if (folder !== undefined) {
+      updates.push(`folder = $${paramCount}`);
+      values.push(folder);
+      paramCount++;
+    }
+    
+    if (status !== undefined) {
+      updates.push(`status = $${paramCount}`);
+      values.push(status);
+      paramCount++;
+    }
+    
+    updates.push(`updated_at = NOW()`);
+    
+    if (updates.length === 1) { // Seulement updated_at
+      return res.status(400).json({ success: false, error: "Aucune donnée à modifier" });
+    }
+    
+    values.push(email_id);
+    
+    const query = `UPDATE emails SET ${updates.join(', ')} WHERE id = $${paramCount} RETURNING *`;
+    
+    const result = await dbPool.query(query, values);
+    
+    res.json({
+      success: true,
+      message: "Email modifié",
+      email: result.rows[0]
+    });
+    
+  } catch (error) {
+    console.error("❌ Erreur modification email:", error);
+    res.status(500).json({ success: false, error: "Erreur serveur" });
+  }
+});
+
+// 6. Supprimer un email (protégé)
+app.delete("/api/emails/:email_id", authenticateToken, async (req, res) => {
+  try {
+    const { email_id } = req.params;
+    const user_id = req.userId;
+    
+    const result = await dbPool.query(
+      'DELETE FROM emails WHERE id = $1 AND user_id = $2 RETURNING id',
+      [email_id, user_id]
+    );
     
     if (result.rows.length === 0) {
       return res.status(404).json({ success: false, error: "Email non trouvé" });
@@ -469,37 +736,21 @@ app.delete("/api/emails/:email_id", async (req, res) => {
   }
 });
 
-// 4. Modifier un email (brouillon)
-app.put("/api/emails/:email_id", async (req, res) => {
+// 7. Mettre à jour le dossier d'un email (protégé)
+app.patch("/api/emails/:email_id/folder", authenticateToken, async (req, res) => {
   try {
     const { email_id } = req.params;
-    const { subject, content } = req.body;
+    const user_id = req.userId;
+    const { folder } = req.body;
     
-    if (!subject && !content) {
-      return res.status(400).json({ success: false, error: "Aucune donnée à modifier" });
+    if (!folder || !['inbox', 'sent', 'drafts', 'pending', 'failed'].includes(folder)) {
+      return res.status(400).json({ success: false, error: "Dossier invalide" });
     }
     
-    const updates = [];
-    const values = [];
-    let paramCount = 1;
-    
-    if (subject) {
-      updates.push(`subject = $${paramCount}`);
-      values.push(subject);
-      paramCount++;
-    }
-    
-    if (content) {
-      updates.push(`content = $${paramCount}`);
-      values.push(content);
-      paramCount++;
-    }
-    
-    values.push(email_id);
-    
-    const query = `UPDATE emails SET ${updates.join(', ')} WHERE id = $${paramCount} RETURNING *`;
-    
-    const result = await dbPool.query(query, values);
+    const result = await dbPool.query(
+      'UPDATE emails SET folder = $1, updated_at = NOW() WHERE id = $2 AND user_id = $3 RETURNING *',
+      [folder, email_id, user_id]
+    );
     
     if (result.rows.length === 0) {
       return res.status(404).json({ success: false, error: "Email non trouvé" });
@@ -507,69 +758,97 @@ app.put("/api/emails/:email_id", async (req, res) => {
     
     res.json({
       success: true,
-      message: "Email modifié",
+      message: "Dossier mis à jour",
       email: result.rows[0]
     });
     
   } catch (error) {
-    console.error("❌ Erreur modification email:", error);
+    console.error("❌ Erreur mise à jour dossier:", error);
     res.status(500).json({ success: false, error: "Erreur serveur" });
   }
 });
 
 // ===== ROUTES UTILITAIRES =====
 
-// Route racine
+// Route racine (publique)
 app.get("/", (req, res) => {
   res.json({
     message: "🚀 Youpi Mail API avec Base de Données",
     status: "online",
-    version: "3.0.0",
+    version: "3.1.0",
     timestamp: new Date().toISOString(),
     features: ["PostgreSQL", "SendGrid API", "Authentification", "Gestion emails"],
     endpoints: {
-      auth: ["POST /api/auth/register", "POST /api/auth/login", "DELETE /api/auth/delete/:user_id"],
-      emails: ["POST /api/emails/send", "GET /api/emails/:user_id", "PUT /api/emails/:email_id", "DELETE /api/emails/:email_id"],
+      auth: ["POST /api/auth/register", "POST /api/auth/login", "GET /api/auth/profile", "DELETE /api/auth/delete"],
+      emails: [
+        "GET /api/emails",
+        "GET /api/emails/:id",
+        "POST /api/emails/send",
+        "POST /api/emails/draft",
+        "PUT /api/emails/:id",
+        "PATCH /api/emails/:id/folder",
+        "DELETE /api/emails/:id"
+      ],
       utils: ["GET /api/health", "GET /api/setup-database"]
-    }
+    },
+    documentation: "https://system-mail-youpi-backend.onrender.com"
   });
 });
 
-// Route santé
+// Route santé (publique)
 app.get("/api/health", async (req, res) => {
   try {
     // Tester la base de données
-    const dbResult = await dbPool.query('SELECT NOW() as db_time');
+    let dbStatus = "❌ non connecté";
+    let dbTime = null;
     
-    // Tester SendGrid (simplifié)
-    const sendgridStatus = process.env.SENDGRID_API_KEY ? "configuré" : "non configuré";
+    try {
+      const dbResult = await dbPool.query('SELECT NOW() as db_time');
+      dbStatus = "✅ connecté";
+      dbTime = dbResult.rows[0].db_time;
+    } catch (dbError) {
+      console.error("Erreur santé DB:", dbError.message);
+    }
+    
+    // Vérifier SendGrid
+    const sendgridStatus = process.env.SENDGRID_API_KEY ? "✅ configuré" : "❌ manquant";
+    const smtpSender = process.env.SMTP_SENDER || "❌ manquant";
     
     res.json({
       status: "OK",
       timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
       services: {
-        database: "connecté",
+        database: dbStatus,
         sendgrid: sendgridStatus,
+        smtp_sender: smtpSender,
         server_time: new Date().toISOString(),
-        db_time: dbResult.rows[0].db_time
+        db_time: dbTime
       },
       memory: {
-        heapUsed: `${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2)} MB`
+        heapUsed: `${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2)} MB`,
+        heapTotal: `${(process.memoryUsage().heapTotal / 1024 / 1024).toFixed(2)} MB`,
+        rss: `${(process.memoryUsage().rss / 1024 / 1024).toFixed(2)} MB`
       }
     });
   } catch (error) {
     res.status(500).json({
       status: "ERROR",
-      error: error.message
+      error: error.message,
+      timestamp: new Date().toISOString()
     });
   }
 });
 
-// Route pour créer les tables (à appeler une fois)
+// Route pour créer les tables (publique - à protéger en production)
 app.get("/api/setup-database", async (req, res) => {
   try {
     await createTables();
-    res.json({ success: true, message: "Base de données configurée avec succès" });
+    res.json({ 
+      success: true, 
+      message: "Base de données configurée avec succès",
+      tables: ["users", "emails", "attachments"]
+    });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -580,7 +859,18 @@ app.use((req, res) => {
   res.status(404).json({
     success: false,
     error: `Route non trouvée: ${req.method} ${req.path}`,
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    availableEndpoints: [
+      "GET /",
+      "GET /api/health",
+      "POST /api/auth/register",
+      "POST /api/auth/login",
+      "GET /api/auth/profile (authentifié)",
+      "DELETE /api/auth/delete (authentifié)",
+      "GET /api/emails (authentifié)",
+      "POST /api/emails/send (authentifié)",
+      "GET /api/setup-database"
+    ]
   });
 });
 
@@ -590,7 +880,9 @@ app.use((err, req, res, next) => {
   res.status(500).json({
     success: false,
     error: "Erreur interne du serveur",
-    message: process.env.NODE_ENV === 'development' ? err.message : undefined
+    message: process.env.NODE_ENV === 'production' ? undefined : err.message,
+    stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
+    timestamp: new Date().toISOString()
   });
 });
 
@@ -608,16 +900,35 @@ const startServer = async () => {
       console.log(`🗄️  Base de données: ${process.env.DATABASE_URL ? '✅ Configurée' : '❌ Manquante'}`);
       console.log(`📧 SendGrid: ${process.env.SENDGRID_API_KEY ? '✅ Configuré' : '❌ Manquant'}`);
       console.log("=".repeat(70));
+      console.log(`📊 Env: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`⏰ Démarrage: ${new Date().toISOString()}`);
+      console.log("=".repeat(70));
     });
     
     // Gestion arrêt propre
-    process.on('SIGTERM', () => {
-      console.log('\n🛑 Arrêt du serveur...');
+    const shutdown = (signal) => {
+      console.log(`\n🛑 Signal ${signal} reçu - Arrêt du serveur...`);
       server.close(() => {
         console.log('✅ Serveur arrêté');
-        process.exit(0);
+        if (dbPool) {
+          dbPool.end(() => {
+            console.log('✅ Pool de connexions PostgreSQL fermé');
+            process.exit(0);
+          });
+        } else {
+          process.exit(0);
+        }
       });
-    });
+      
+      // Timeout force shutdown après 10 secondes
+      setTimeout(() => {
+        console.error('⏰ Timeout shutdown - Forcer la fermeture');
+        process.exit(1);
+      }, 10000);
+    };
+    
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
+    process.on('SIGINT', () => shutdown('SIGINT'));
     
   } catch (error) {
     console.error("💥 Impossible de démarrer le serveur:", error);
