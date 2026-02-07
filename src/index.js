@@ -8,7 +8,7 @@ const bcrypt = require('bcrypt');
 const { Pool } = require('pg');
 
 const app = express();
-const PORT = process.env.PORT || 10000; // Render utilise le port 10000
+const PORT = process.env.PORT || 10000;
 const HOST = '0.0.0.0';
 
 // ===== CONFIGURATION DE LA BASE DE DONNÉES =====
@@ -106,7 +106,7 @@ const initializeServices = async () => {
       throw new Error("Impossible de se connecter à la base de données");
     }
     
-    await createTables();      // 3. Créer les tables
+    await createTables();      // 3. Créer/Mettre à jour les tables
     console.log("🚀 Tous les services sont prêts !");
   } catch (error) {
     console.error("💥 Échec initialisation:", error);
@@ -114,11 +114,36 @@ const initializeServices = async () => {
   }
 };
 
-// ===== CRÉATION DES TABLES =====
+// ===== CRÉATION/MISE À JOUR DES TABLES =====
 const createTables = async () => {
+  try {
+    // Vérifier si les tables existent déjà
+    const tablesExist = await dbPool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'users'
+      )
+    `);
+    
+    if (!tablesExist.rows[0].exists) {
+      // Créer les tables si elles n'existent pas
+      await createNewTables();
+      console.log("✅ Tables créées avec succès");
+    } else {
+      // Mettre à jour les tables existantes
+      await updateExistingTables();
+      console.log("✅ Tables mises à jour avec succès");
+    }
+  } catch (error) {
+    console.error("❌ Erreur création/mise à jour tables:", error.message);
+    throw error;
+  }
+};
+
+const createNewTables = async () => {
   const createTablesSQL = `
     -- Table utilisateurs
-    CREATE TABLE IF NOT EXISTS users (
+    CREATE TABLE users (
       id SERIAL PRIMARY KEY,
       email VARCHAR(255) UNIQUE NOT NULL,
       password_hash VARCHAR(255) NOT NULL,
@@ -127,7 +152,7 @@ const createTables = async () => {
     );
 
     -- Table emails
-    CREATE TABLE IF NOT EXISTS emails (
+    CREATE TABLE emails (
       id SERIAL PRIMARY KEY,
       user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
       to_email VARCHAR(255) NOT NULL,
@@ -142,7 +167,7 @@ const createTables = async () => {
     );
 
     -- Table pièces jointes
-    CREATE TABLE IF NOT EXISTS attachments (
+    CREATE TABLE attachments (
       id SERIAL PRIMARY KEY,
       email_id INTEGER REFERENCES emails(id) ON DELETE CASCADE,
       filename VARCHAR(255),
@@ -150,19 +175,59 @@ const createTables = async () => {
       created_at TIMESTAMP DEFAULT NOW()
     );
 
-    -- Créer un index pour améliorer les performances
-    CREATE INDEX IF NOT EXISTS idx_emails_user_id ON emails(user_id);
-    CREATE INDEX IF NOT EXISTS idx_emails_folder ON emails(folder);
-    CREATE INDEX IF NOT EXISTS idx_emails_created_at ON emails(created_at DESC);
+    -- Créer des index
+    CREATE INDEX idx_emails_user_id ON emails(user_id);
+    CREATE INDEX idx_emails_folder ON emails(folder);
+    CREATE INDEX idx_emails_created_at ON emails(created_at DESC);
   `;
   
-  try {
-    await dbPool.query(createTablesSQL);
-    console.log("✅ Tables créées avec succès");
-  } catch (error) {
-    console.error("❌ Erreur création tables:", error.message);
-    throw error;
+  await dbPool.query(createTablesSQL);
+};
+
+const updateExistingTables = async () => {
+  // Vérifier et ajouter les colonnes manquantes à la table emails
+  const checkColumns = await dbPool.query(`
+    SELECT column_name 
+    FROM information_schema.columns 
+    WHERE table_name = 'emails'
+  `);
+  
+  const existingColumns = checkColumns.rows.map(row => row.column_name);
+  
+  // Ajouter la colonne folder si elle n'existe pas
+  if (!existingColumns.includes('folder')) {
+    console.log("📋 Ajout de la colonne 'folder' à la table emails...");
+    await dbPool.query('ALTER TABLE emails ADD COLUMN folder VARCHAR(50) DEFAULT \'inbox\'');
   }
+  
+  // Ajouter la colonne updated_at si elle n'existe pas
+  if (!existingColumns.includes('updated_at')) {
+    console.log("📋 Ajout de la colonne 'updated_at' à la table emails...");
+    await dbPool.query('ALTER TABLE emails ADD COLUMN updated_at TIMESTAMP DEFAULT NOW()');
+  }
+  
+  // Créer les index s'ils n'existent pas
+  const checkIndexes = await dbPool.query(`
+    SELECT indexname 
+    FROM pg_indexes 
+    WHERE tablename = 'emails'
+  `);
+  
+  const existingIndexes = checkIndexes.rows.map(row => row.indexname);
+  
+  if (!existingIndexes.some(idx => idx.includes('idx_emails_user_id'))) {
+    await dbPool.query('CREATE INDEX IF NOT EXISTS idx_emails_user_id ON emails(user_id)');
+  }
+  
+  if (!existingIndexes.some(idx => idx.includes('idx_emails_folder'))) {
+    await dbPool.query('CREATE INDEX IF NOT EXISTS idx_emails_folder ON emails(folder)');
+  }
+  
+  if (!existingIndexes.some(idx => idx.includes('idx_emails_created_at'))) {
+    await dbPool.query('CREATE INDEX IF NOT EXISTS idx_emails_created_at ON emails(created_at DESC)');
+  }
+  
+  console.log("✅ Structure de base de données vérifiée et mise à jour");
 };
 
 // ===== FONCTION UTILITAIRE : ENVOI D'EMAIL =====
@@ -215,7 +280,17 @@ app.use((req, res, next) => {
   
   console.log(`\n[${new Date().toISOString()}] ${req.method} ${req.originalUrl} [ID:${requestId}]`);
   if (req.method === 'POST' && req.body && Object.keys(req.body).length > 0) {
-    console.log(`📦 Body:`, Object.keys(req.body).map(k => `${k}: ${typeof req.body[k] === 'string' ? req.body[k].substring(0, 100) + '...' : req.body[k]}`));
+    const logBody = {};
+    for (const [key, value] of Object.entries(req.body)) {
+      if (typeof value === 'string' && value.length > 100) {
+        logBody[key] = value.substring(0, 100) + '...';
+      } else if (key === 'password') {
+        logBody[key] = '***';
+      } else {
+        logBody[key] = value;
+      }
+    }
+    console.log(`📦 Body:`, logBody);
   }
   
   res.setHeader('X-Request-ID', requestId);
@@ -239,7 +314,11 @@ const authenticateToken = async (req, res, next) => {
     
     if (!token) {
       // Pour les routes GET publiques, continuer sans auth
-      if (req.method === 'GET' && req.path.startsWith('/api/health')) {
+      if (req.method === 'GET' && (
+        req.path === '/' || 
+        req.path.startsWith('/api/health') ||
+        req.path.startsWith('/api/setup-database')
+      )) {
         return next();
       }
       return res.status(401).json({ success: false, error: 'Token manquant' });
@@ -570,9 +649,9 @@ app.get("/api/emails", authenticateToken, async (req, res) => {
         subject: email.subject,
         content: email.content,
         status: email.status,
-        folder: email.folder,
+        folder: email.folder || 'inbox', // Valeur par défaut
         createdAt: email.created_at,
-        updatedAt: email.updated_at,
+        updatedAt: email.updated_at || email.created_at,
         errorDetail: email.error_detail
       }))
     });
@@ -598,9 +677,22 @@ app.get("/api/emails/:email_id", authenticateToken, async (req, res) => {
       return res.status(404).json({ success: false, error: "Email non trouvé" });
     }
     
+    const email = result.rows[0];
+    
     res.json({
       success: true,
-      email: result.rows[0]
+      email: {
+        id: email.id,
+        to: email.to_email,
+        subject: email.subject,
+        content: email.content,
+        status: email.status,
+        folder: email.folder || 'inbox',
+        createdAt: email.created_at,
+        updatedAt: email.updated_at || email.created_at,
+        errorDetail: email.error_detail,
+        sendgridMessageId: email.sendgrid_message_id
+      }
     });
     
   } catch (error) {
@@ -634,7 +726,7 @@ app.post("/api/emails/draft", authenticateToken, async (req, res) => {
   }
 });
 
-// 5. Modifier un email (brouillon) (protégé)
+// 5. Modifier un email (protégé)
 app.put("/api/emails/:email_id", authenticateToken, async (req, res) => {
   try {
     const { email_id } = req.params;
@@ -685,12 +777,11 @@ app.put("/api/emails/:email_id", authenticateToken, async (req, res) => {
       paramCount++;
     }
     
-    updates.push(`updated_at = NOW()`);
-    
-    if (updates.length === 1) { // Seulement updated_at
+    if (updates.length === 0) {
       return res.status(400).json({ success: false, error: "Aucune donnée à modifier" });
     }
     
+    updates.push(`updated_at = NOW()`);
     values.push(email_id);
     
     const query = `UPDATE emails SET ${updates.join(', ')} WHERE id = $${paramCount} RETURNING *`;
@@ -743,7 +834,7 @@ app.patch("/api/emails/:email_id/folder", authenticateToken, async (req, res) =>
     const user_id = req.userId;
     const { folder } = req.body;
     
-    if (!folder || !['inbox', 'sent', 'drafts', 'pending', 'failed'].includes(folder)) {
+    if (!folder || !['inbox', 'sent', 'drafts', 'pending', 'failed', 'all'].includes(folder)) {
       return res.status(400).json({ success: false, error: "Dossier invalide" });
     }
     
@@ -775,9 +866,9 @@ app.get("/", (req, res) => {
   res.json({
     message: "🚀 Youpi Mail API avec Base de Données",
     status: "online",
-    version: "3.1.0",
+    version: "3.2.0",
     timestamp: new Date().toISOString(),
-    features: ["PostgreSQL", "SendGrid API", "Authentification", "Gestion emails"],
+    features: ["PostgreSQL", "SendGrid API", "Authentification", "Gestion emails", "Dossiers"],
     endpoints: {
       auth: ["POST /api/auth/register", "POST /api/auth/login", "GET /api/auth/profile", "DELETE /api/auth/delete"],
       emails: [
@@ -801,11 +892,23 @@ app.get("/api/health", async (req, res) => {
     // Tester la base de données
     let dbStatus = "❌ non connecté";
     let dbTime = null;
+    let tablesInfo = [];
     
     try {
       const dbResult = await dbPool.query('SELECT NOW() as db_time');
       dbStatus = "✅ connecté";
       dbTime = dbResult.rows[0].db_time;
+      
+      // Vérifier les tables
+      const tablesResult = await dbPool.query(`
+        SELECT table_name, 
+               (SELECT COUNT(*) FROM information_schema.columns WHERE table_name = t.table_name) as columns,
+               (SELECT COUNT(*) FROM information_schema.indexes WHERE table_name = t.table_name) as indexes
+        FROM information_schema.tables t
+        WHERE table_schema = 'public'
+        ORDER BY table_name
+      `);
+      tablesInfo = tablesResult.rows;
     } catch (dbError) {
       console.error("Erreur santé DB:", dbError.message);
     }
@@ -825,6 +928,7 @@ app.get("/api/health", async (req, res) => {
         server_time: new Date().toISOString(),
         db_time: dbTime
       },
+      tables: tablesInfo,
       memory: {
         heapUsed: `${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2)} MB`,
         heapTotal: `${(process.memoryUsage().heapTotal / 1024 / 1024).toFixed(2)} MB`,
@@ -846,96 +950,10 @@ app.get("/api/setup-database", async (req, res) => {
     await createTables();
     res.json({ 
       success: true, 
-      message: "Base de données configurée avec succès",
+      message: "Base de données vérifiée et mise à jour avec succès",
       tables: ["users", "emails", "attachments"]
     });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
 });
-
-// Route 404
-app.use((req, res) => {
-  res.status(404).json({
-    success: false,
-    error: `Route non trouvée: ${req.method} ${req.path}`,
-    timestamp: new Date().toISOString(),
-    availableEndpoints: [
-      "GET /",
-      "GET /api/health",
-      "POST /api/auth/register",
-      "POST /api/auth/login",
-      "GET /api/auth/profile (authentifié)",
-      "DELETE /api/auth/delete (authentifié)",
-      "GET /api/emails (authentifié)",
-      "POST /api/emails/send (authentifié)",
-      "GET /api/setup-database"
-    ]
-  });
-});
-
-// Gestion erreurs globales
-app.use((err, req, res, next) => {
-  console.error("🔥 Erreur globale:", err);
-  res.status(500).json({
-    success: false,
-    error: "Erreur interne du serveur",
-    message: process.env.NODE_ENV === 'production' ? undefined : err.message,
-    stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
-    timestamp: new Date().toISOString()
-  });
-});
-
-// ===== DÉMARRAGE =====
-const startServer = async () => {
-  try {
-    await initializeServices();
-    
-    const server = app.listen(PORT, HOST, () => {
-      console.log("\n" + "=".repeat(70));
-      console.log("🚀 YOUPI MAIL API - DÉMARRÉE AVEC SUCCÈS");
-      console.log("=".repeat(70));
-      console.log(`🌐 URL: https://system-mail-youpi-backend.onrender.com`);
-      console.log(`🔧 Port: ${PORT}`);
-      console.log(`🗄️  Base de données: ${process.env.DATABASE_URL ? '✅ Configurée' : '❌ Manquante'}`);
-      console.log(`📧 SendGrid: ${process.env.SENDGRID_API_KEY ? '✅ Configuré' : '❌ Manquant'}`);
-      console.log("=".repeat(70));
-      console.log(`📊 Env: ${process.env.NODE_ENV || 'development'}`);
-      console.log(`⏰ Démarrage: ${new Date().toISOString()}`);
-      console.log("=".repeat(70));
-    });
-    
-    // Gestion arrêt propre
-    const shutdown = (signal) => {
-      console.log(`\n🛑 Signal ${signal} reçu - Arrêt du serveur...`);
-      server.close(() => {
-        console.log('✅ Serveur arrêté');
-        if (dbPool) {
-          dbPool.end(() => {
-            console.log('✅ Pool de connexions PostgreSQL fermé');
-            process.exit(0);
-          });
-        } else {
-          process.exit(0);
-        }
-      });
-      
-      // Timeout force shutdown après 10 secondes
-      setTimeout(() => {
-        console.error('⏰ Timeout shutdown - Forcer la fermeture');
-        process.exit(1);
-      }, 10000);
-    };
-    
-    process.on('SIGTERM', () => shutdown('SIGTERM'));
-    process.on('SIGINT', () => shutdown('SIGINT'));
-    
-  } catch (error) {
-    console.error("💥 Impossible de démarrer le serveur:", error);
-    process.exit(1);
-  }
-};
-
-startServer();
-
-module.exports = app;
