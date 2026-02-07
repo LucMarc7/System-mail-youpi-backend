@@ -1,99 +1,75 @@
-const sgMail = require('@sendgrid/mail');
-require("dotenv").config();
-const express = require("express");
-const cors = require("cors");
-const path = require("path");
-const fs = require("fs");
-const bcrypt = require('bcrypt');
-const { Pool } = require('pg');
+// Au début du fichier, après les imports
+console.log("🔍 Démarrage de l'application...");
+console.log("📦 Variables d'environnement disponibles:");
+console.log("- PORT:", process.env.PORT);
+console.log("- DATABASE_URL:", process.env.DATABASE_URL ? "Présente (masquée)" : "Manquante");
+console.log("- SENDGRID_API_KEY:", process.env.SENDGRID_API_KEY ? "Présente (masquée)" : "Manquante");
+console.log("- SMTP_SENDER:", process.env.SMTP_SENDER || "Manquant");
 
-const app = express();
-const PORT = process.env.PORT || 10000;
-const HOST = '0.0.0.0';
-
-// ===== CONFIGURATION DE LA BASE DE DONNÉES =====
-let dbPool;
-const initializeDatabase = () => {
-  console.log("=".repeat(60));
-  console.log("🗄️  INITIALISATION BASE DE DONNÉES POSTGRESQL");
-  console.log("=".repeat(60));
-  
-  if (!process.env.DATABASE_URL) {
-    console.error('❌ ERREUR: DATABASE_URL non définie sur Render');
-    console.error('   ➡️ Créez une base PostgreSQL et ajoutez DATABASE_URL dans Environment');
-    throw new Error("Configuration base de données manquante");
-  }
-  
+// Modifiez la fonction startServer pour mieux capturer les erreurs
+const startServer = async () => {
   try {
-    dbPool = new Pool({
-      connectionString: process.env.DATABASE_URL,
-      ssl: {
-        rejectUnauthorized: false
-      },
-      max: 20,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 2000
+    console.log("🔄 Initialisation des services...");
+    await initializeServices();
+    
+    console.log("🚀 Démarrage du serveur HTTP...");
+    const server = app.listen(PORT, HOST, () => {
+      console.log("\n" + "=".repeat(70));
+      console.log("🚀 YOUPI MAIL API - DÉMARRÉE AVEC SUCCÈS");
+      console.log("=".repeat(70));
+      console.log(`🌐 URL: https://system-mail-youpi-backend.onrender.com`);
+      console.log(`🔧 Port: ${PORT}`);
+      console.log(`📊 Env: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`⏰ Démarrage: ${new Date().toISOString()}`);
+      console.log("=".repeat(70));
     });
     
-    console.log('✅ Pool PostgreSQL créé');
-    console.log("=".repeat(60));
-    return dbPool;
-  } catch (dbError) {
-    console.error("💥 ERREUR FATALE PostgreSQL:", dbError.message);
-    throw dbError;
-  }
-};
-
-// ===== CONFIGURATION SENDGRID API =====
-const initializeSendGridClient = () => {
-  console.log("=".repeat(60));
-  console.log("🔄 INITIALISATION CLIENT SENDGRID API");
-  console.log("=".repeat(60));
-  
-  if (!process.env.SENDGRID_API_KEY) {
-    console.error('❌ ERREUR: SENDGRID_API_KEY non définie');
-    throw new Error("SENDGRID_API_KEY manquante");
-  }
-  
-  if (!process.env.SMTP_SENDER) {
-    console.error('❌ ERREUR: SMTP_SENDER non définie');
-    throw new Error("SMTP_SENDER manquante");
-  }
-  
-  console.log("✅ SENDGRID_API_KEY: Présente");
-  console.log("✅ SMTP_SENDER:", process.env.SMTP_SENDER);
-  
-  try {
-    sgMail.setApiKey(process.env.SENDGRID_API_KEY);
-    console.log("✅ Client SendGrid API initialisé");
-    console.log("=".repeat(60));
-    return sgMail;
+    // Gestion des erreurs du serveur
+    server.on('error', (error) => {
+      console.error("💥 Erreur du serveur HTTP:", error);
+      if (error.code === 'EADDRINUSE') {
+        console.error(`❌ Le port ${PORT} est déjà utilisé`);
+      }
+    });
+    
+    // Gestion arrêt propre
+    const shutdown = (signal) => {
+      console.log(`\n🛑 Signal ${signal} reçu - Arrêt du serveur...`);
+      server.close(() => {
+        console.log('✅ Serveur arrêté');
+        if (dbPool) {
+          dbPool.end(() => {
+            console.log('✅ Pool de connexions PostgreSQL fermé');
+            process.exit(0);
+          });
+        } else {
+          process.exit(0);
+        }
+      });
+    };
+    
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
+    process.on('SIGINT', () => shutdown('SIGINT'));
+    
   } catch (error) {
-    console.error("❌ Erreur SendGrid:", error.message);
-    throw error;
+    console.error("💥 IMPOSSIBLE DE DÉMARRER LE SERVEUR:");
+    console.error("Erreur:", error.message);
+    console.error("Stack:", error.stack);
+    process.exit(1);
   }
 };
 
-// Initialiser les clients
-let sendGridClient = null;
-const getSendGridClient = () => {
-  if (!sendGridClient) sendGridClient = initializeSendGridClient();
-  return sendGridClient;
-};
+// Ajoutez un gestionnaire pour les erreurs non capturées
+process.on('uncaughtException', (error) => {
+  console.error("💥 ERREUR NON CAPTURÉE:", error);
+  console.error("Stack:", error.stack);
+  process.exit(1);
+});
 
-// Fonction pour tester la connexion à la base de données
-const testDatabaseConnection = async () => {
-  try {
-    const client = await dbPool.connect();
-    await client.query('SELECT NOW()');
-    client.release();
-    console.log('✅ PostgreSQL connecté avec succès');
-    return true;
-  } catch (err) {
-    console.error('❌ Connexion PostgreSQL échouée:', err.message);
-    return false;
-  }
-};
+process.on('unhandledRejection', (reason, promise) => {
+  console.error("💥 PROMESSE NON GÉRÉE:", reason);
+  process.exit(1);
+});
 
 const initializeServices = async () => {
   try {
