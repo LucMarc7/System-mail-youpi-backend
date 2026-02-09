@@ -1,92 +1,97 @@
-// Au début du fichier, après les imports
-console.log("🔍 Démarrage de l'application...");
-console.log("📦 Variables d'environnement disponibles:");
-console.log("- PORT:", process.env.PORT);
-console.log("- DATABASE_URL:", process.env.DATABASE_URL ? "Présente (masquée)" : "Manquante");
-console.log("- SENDGRID_API_KEY:", process.env.SENDGRID_API_KEY ? "Présente (masquée)" : "Manquante");
-console.log("- SMTP_SENDER:", process.env.SMTP_SENDER || "Manquant");
+const sgMail = require('@sendgrid/mail');
+require("dotenv").config();
+const express = require("express");
+const cors = require("cors");
+const path = require("path");
+const fs = require("fs");
+const bcrypt = require('bcrypt');
+const { Pool } = require('pg');
 
-// Modifiez la fonction startServer pour mieux capturer les erreurs
-const startServer = async () => {
+const app = express();
+const PORT = process.env.PORT || 10000;
+const HOST = '0.0.0.0';
+
+// ===== CONFIGURATION DE LA BASE DE DONNÉES =====
+let dbPool;
+const initializeDatabase = () => {
+  console.log("=".repeat(60));
+  console.log("🗄️  INITIALISATION BASE DE DONNÉES POSTGRESQL");
+  console.log("=".repeat(60));
+  
+  if (!process.env.DATABASE_URL) {
+    console.error('❌ ERREUR: DATABASE_URL non définie sur Render');
+    console.error('   ➡️ Créez une base PostgreSQL et ajoutez DATABASE_URL dans Environment');
+    throw new Error("Configuration base de données manquante");
+  }
+  
   try {
-    console.log("🔄 Initialisation des services...");
-    await initializeServices();
-    
-    console.log("🚀 Démarrage du serveur HTTP...");
-    const server = app.listen(PORT, HOST, () => {
-      console.log("\n" + "=".repeat(70));
-      console.log("🚀 YOUPI MAIL API - DÉMARRÉE AVEC SUCCÈS");
-      console.log("=".repeat(70));
-      console.log(`🌐 URL: https://system-mail-youpi-backend.onrender.com`);
-      console.log(`🔧 Port: ${PORT}`);
-      console.log(`📊 Env: ${process.env.NODE_ENV || 'development'}`);
-      console.log(`⏰ Démarrage: ${new Date().toISOString()}`);
-      console.log("=".repeat(70));
+    dbPool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: {
+        rejectUnauthorized: false
+      },
+      max: 20,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 2000
     });
     
-    // Gestion des erreurs du serveur
-    server.on('error', (error) => {
-      console.error("💥 Erreur du serveur HTTP:", error);
-      if (error.code === 'EADDRINUSE') {
-        console.error(`❌ Le port ${PORT} est déjà utilisé`);
-      }
-    });
-    
-    // Gestion arrêt propre
-    const shutdown = (signal) => {
-      console.log(`\n🛑 Signal ${signal} reçu - Arrêt du serveur...`);
-      server.close(() => {
-        console.log('✅ Serveur arrêté');
-        if (dbPool) {
-          dbPool.end(() => {
-            console.log('✅ Pool de connexions PostgreSQL fermé');
-            process.exit(0);
-          });
-        } else {
-          process.exit(0);
-        }
-      });
-    };
-    
-    process.on('SIGTERM', () => shutdown('SIGTERM'));
-    process.on('SIGINT', () => shutdown('SIGINT'));
-    
-  } catch (error) {
-    console.error("💥 IMPOSSIBLE DE DÉMARRER LE SERVEUR:");
-    console.error("Erreur:", error.message);
-    console.error("Stack:", error.stack);
-    process.exit(1);
+    console.log('✅ Pool PostgreSQL créé');
+    console.log("=".repeat(60));
+    return dbPool;
+  } catch (dbError) {
+    console.error("💥 ERREUR FATALE PostgreSQL:", dbError.message);
+    throw dbError;
   }
 };
 
-// Ajoutez un gestionnaire pour les erreurs non capturées
-process.on('uncaughtException', (error) => {
-  console.error("💥 ERREUR NON CAPTURÉE:", error);
-  console.error("Stack:", error.stack);
-  process.exit(1);
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-  console.error("💥 PROMESSE NON GÉRÉE:", reason);
-  process.exit(1);
-});
-
-const initializeServices = async () => {
+// ===== CONFIGURATION SENDGRID API =====
+const initializeSendGridClient = () => {
+  console.log("=".repeat(60));
+  console.log("🔄 INITIALISATION CLIENT SENDGRID API");
+  console.log("=".repeat(60));
+  
+  if (!process.env.SENDGRID_API_KEY) {
+    console.error('❌ ERREUR: SENDGRID_API_KEY non définie');
+    throw new Error("SENDGRID_API_KEY manquante");
+  }
+  
+  if (!process.env.SMTP_SENDER) {
+    console.error('❌ ERREUR: SMTP_SENDER non définie');
+    throw new Error("SMTP_SENDER manquante");
+  }
+  
+  console.log("✅ SENDGRID_API_KEY: Présente");
+  console.log("✅ SMTP_SENDER:", process.env.SMTP_SENDER);
+  
   try {
-    initializeDatabase();      // 1. Base de données
-    getSendGridClient();       // 2. SendGrid
-    
-    // Tester la connexion à la base de données
-    const dbConnected = await testDatabaseConnection();
-    if (!dbConnected) {
-      throw new Error("Impossible de se connecter à la base de données");
-    }
-    
-    await createTables();      // 3. Créer/Mettre à jour les tables
-    console.log("🚀 Tous les services sont prêts !");
+    sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+    console.log("✅ Client SendGrid API initialisé");
+    console.log("=".repeat(60));
+    return sgMail;
   } catch (error) {
-    console.error("💥 Échec initialisation:", error);
-    process.exit(1);
+    console.error("❌ Erreur SendGrid:", error.message);
+    throw error;
+  }
+};
+
+// Initialiser les clients
+let sendGridClient = null;
+const getSendGridClient = () => {
+  if (!sendGridClient) sendGridClient = initializeSendGridClient();
+  return sendGridClient;
+};
+
+// Fonction pour tester la connexion à la base de données
+const testDatabaseConnection = async () => {
+  try {
+    const client = await dbPool.connect();
+    await client.query('SELECT NOW()');
+    client.release();
+    console.log('✅ PostgreSQL connecté avec succès');
+    return true;
+  } catch (err) {
+    console.error('❌ Connexion PostgreSQL échouée:', err.message);
+    return false;
   }
 };
 
@@ -933,3 +938,133 @@ app.get("/api/setup-database", async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 });
+
+// Route 404
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    error: `Route non trouvée: ${req.method} ${req.path}`,
+    timestamp: new Date().toISOString(),
+    availableEndpoints: [
+      "GET /",
+      "GET /api/health",
+      "POST /api/auth/register",
+      "POST /api/auth/login",
+      "GET /api/auth/profile (authentifié)",
+      "DELETE /api/auth/delete (authentifié)",
+      "GET /api/emails (authentifié)",
+      "POST /api/emails/send (authentifié)",
+      "GET /api/setup-database"
+    ]
+  });
+});
+
+// Gestion erreurs globales
+app.use((err, req, res, next) => {
+  console.error("🔥 Erreur globale:", err);
+  res.status(500).json({
+    success: false,
+    error: "Erreur interne du serveur",
+    message: process.env.NODE_ENV === 'production' ? undefined : err.message,
+    stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
+    timestamp: new Date().toISOString()
+  });
+});
+
+// ===== DÉMARRAGE =====
+
+// Variables d'environnement disponibles
+console.log("🔍 Démarrage de l'application...");
+console.log("📦 Variables d'environnement disponibles:");
+console.log("- PORT:", process.env.PORT);
+console.log("- DATABASE_URL:", process.env.DATABASE_URL ? "Présente (masquée)" : "Manquante");
+console.log("- SENDGRID_API_KEY:", process.env.SENDGRID_API_KEY ? "Présente (masquée)" : "Manquante");
+console.log("- SMTP_SENDER:", process.env.SMTP_SENDER || "Manquant");
+
+const initializeServices = async () => {
+  try {
+    console.log("🔄 Initialisation des services...");
+    initializeDatabase();      // 1. Base de données
+    getSendGridClient();       // 2. SendGrid
+    
+    // Tester la connexion à la base de données
+    const dbConnected = await testDatabaseConnection();
+    if (!dbConnected) {
+      throw new Error("Impossible de se connecter à la base de données");
+    }
+    
+    await createTables();      // 3. Créer/Mettre à jour les tables
+    console.log("🚀 Tous les services sont prêts !");
+  } catch (error) {
+    console.error("💥 Échec initialisation:", error);
+    process.exit(1);
+  }
+};
+
+// Ajoutez un gestionnaire pour les erreurs non capturées
+process.on('uncaughtException', (error) => {
+  console.error("💥 ERREUR NON CAPTURÉE:", error);
+  console.error("Stack:", error.stack);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error("💥 PROMESSE NON GÉRÉE:", reason);
+  process.exit(1);
+});
+
+const startServer = async () => {
+  try {
+    console.log("🔄 Initialisation des services...");
+    await initializeServices();
+    
+    console.log("🚀 Démarrage du serveur HTTP...");
+    const server = app.listen(PORT, HOST, () => {
+      console.log("\n" + "=".repeat(70));
+      console.log("🚀 YOUPI MAIL API - DÉMARRÉE AVEC SUCCÈS");
+      console.log("=".repeat(70));
+      console.log(`🌐 URL: https://system-mail-youpi-backend.onrender.com`);
+      console.log(`🔧 Port: ${PORT}`);
+      console.log(`📊 Env: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`⏰ Démarrage: ${new Date().toISOString()}`);
+      console.log("=".repeat(70));
+    });
+    
+    // Gestion des erreurs du serveur
+    server.on('error', (error) => {
+      console.error("💥 Erreur du serveur HTTP:", error);
+      if (error.code === 'EADDRINUSE') {
+        console.error(`❌ Le port ${PORT} est déjà utilisé`);
+      }
+    });
+    
+    // Gestion arrêt propre
+    const shutdown = (signal) => {
+      console.log(`\n🛑 Signal ${signal} reçu - Arrêt du serveur...`);
+      server.close(() => {
+        console.log('✅ Serveur arrêté');
+        if (dbPool) {
+          dbPool.end(() => {
+            console.log('✅ Pool de connexions PostgreSQL fermé');
+            process.exit(0);
+          });
+        } else {
+          process.exit(0);
+        }
+      });
+    };
+    
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
+    process.on('SIGINT', () => shutdown('SIGINT'));
+    
+  } catch (error) {
+    console.error("💥 IMPOSSIBLE DE DÉMARRER LE SERVEUR:");
+    console.error("Erreur:", error.message);
+    console.error("Stack:", error.stack);
+    process.exit(1);
+  }
+};
+
+startServer();
+
+module.exports = app;
