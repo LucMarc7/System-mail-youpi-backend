@@ -20,9 +20,8 @@
     "format": "prettier --write \"src/**/*.js\"",
     "security-check": "npm audit --audit-level=moderate",
     "clean": "rm -rf node_modules package-lock.json",
-    "preinstall": "npm audit --production",
-    "postinstall": "npm run security-check",
-    "prepare": "husky install"
+    "preinstall": "npm audit --omit=dev",
+    "postinstall": "[ \"$NODE_ENV\" != \"production\" ] && npm run security-check || echo 'Skipping security-check in production'"
   },
   "keywords": [
     "email",

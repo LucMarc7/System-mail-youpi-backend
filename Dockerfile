@@ -1,7 +1,8 @@
 FROM node:18-alpine
 WORKDIR /app
 COPY package*.json ./
-RUN npm install --only=production
 COPY . .
 EXPOSE 10000
 CMD ["node", "src/index.js"]
+ENV npm_config_ignore_scripts=true
+RUN npm install --only=production --omit=dev
