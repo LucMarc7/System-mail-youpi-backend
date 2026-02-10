@@ -326,10 +326,10 @@ const createDefaultTemplates = async () => {
         {
           name: 'welcome',
           category: 'onboarding',
-          subject: 'Bienvenue chez Youpi Mail ! 🎉',
+          subject: 'Bienvenue chez Youpi!',
           html_content: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
             <h1 style="color: #4F46E5;">Bienvenue {{user_name}} !</h1>
-            <p>Merci de vous être inscrit à Youpi Mail. Nous sommes ravis de vous accueillir.</p>
+            <p>Merci de vous être inscrit à Youpi. Nous sommes ravis de vous accueillir.</p>
             <div style="background-color: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0;">
               <h3>🚀 Votre compte est prêt !</h3>
               <p>Vous pouvez maintenant :</p>
@@ -343,10 +343,10 @@ const createDefaultTemplates = async () => {
             <p>Si vous avez des questions, n'hésitez pas à répondre à cet email.</p>
             <p style="color: #6b7280; font-size: 14px; margin-top: 30px;">
               Cordialement,<br>
-              L'équipe Youpi Mail
+              L'équipe Youpi
             </p>
           </div>`,
-          text_content: "Bienvenue {{user_name}} ! Merci de vous être inscrit à Youpi Mail...",
+          text_content: "Bienvenue {{user_name}} ! Merci de vous être inscrit à Youpi...",
           variables: '["user_name", "user_email"]',
           is_system: true
         },
@@ -357,7 +357,7 @@ const createDefaultTemplates = async () => {
           html_content: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
             <h1 style="color: #4F46E5;">Réinitialisation du mot de passe</h1>
             <p>Bonjour {{user_name}},</p>
-            <p>Vous avez demandé la réinitialisation de votre mot de passe Youpi Mail.</p>
+            <p>Vous avez demandé la réinitialisation de votre mot de passe Youpi.</p>
             <div style="text-align: center; margin: 30px 0;">
               <a href="{{reset_link}}" style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">
                 Réinitialiser mon mot de passe
@@ -461,7 +461,7 @@ const sendEmailViaAPI = async (emailData) => {
     to: emailData.to,
     from: {
       email: process.env.SMTP_SENDER,
-      name: emailData.senderName || 'Youpi Mail'
+      name: emailData.senderName || 'Youpi'
     },
     subject: emailData.subject,
     text: emailData.text,
@@ -767,7 +767,7 @@ app.post("/api/emails/send", authenticateToken, async (req, res) => {
       text: message,
       html: `<div>${message.replace(/\n/g, '<br>')}</div>`,
       replyTo: process.env.SMTP_SENDER,
-      senderName: 'Youpi Mail'
+      senderName: 'Youpi'
     });
     
     // Sauvegarder dans la base de données
@@ -1561,7 +1561,7 @@ app.post("/api/templates/:id/duplicate", authenticateToken, async (req, res) => 
 // Route racine (publique)
 app.get("/", (req, res) => {
   res.json({
-    message: "🚀 Youpi Mail API avec Base de Données",
+    message: "Youpi API avec Base de Données",
     status: "online",
     version: "3.3.0",
     timestamp: new Date().toISOString(),
@@ -1752,7 +1752,7 @@ const startServer = async () => {
     console.log("🚀 Démarrage du serveur HTTP...");
     const server = app.listen(PORT, HOST, () => {
       console.log("\n" + "=".repeat(70));
-      console.log("🚀 YOUPI MAIL API - DÉMARRÉE AVEC SUCCÈS");
+      console.log("🚀 YOUPI API - DÉMARRÉE AVEC SUCCÈS");
       console.log("=".repeat(70));
       console.log(`🌐 URL: https://system-mail-youpi-backend.onrender.com`);
       console.log(`🔧 Port: ${PORT}`);

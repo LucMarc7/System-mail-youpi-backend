@@ -63,7 +63,7 @@ router.post("/send", async (req, res) => {
     
     // Préparation des options de l'email
     const mailOptions = {
-      from: `"Youpi Mail" <${senderEmail}>`,
+      from: `"Youpi" <${senderEmail}>`,
       replyTo: userEmail,
       to: to,
       subject: subject,
@@ -71,7 +71,7 @@ router.post("/send", async (req, res) => {
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #eaeaea; border-radius: 10px; overflow: hidden;">
           <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; text-align: center;">
-            <h1 style="margin: 0;">✉️ Youpi Mail</h1>
+            <h1 style="margin: 0;">✉️ Youpi</h1>
             <p style="margin: 5px 0 0; opacity: 0.9;">Email envoyé via votre application</p>
           </div>
           <div style="padding: 30px;">
@@ -81,7 +81,7 @@ router.post("/send", async (req, res) => {
             <p style="color: #888; font-size: 0.9em;">
               <strong>Destinataire type :</strong> ${destinator}<br>
               <strong>Expéditeur :</strong> ${userEmail}<br>
-              <em>Cet email a été envoyé via l'API Youpi Mail avec SendGrid.</em>
+              <em>Cet email a été envoyé via Youpi System Mail.</em>
             </p>
           </div>
         </div>

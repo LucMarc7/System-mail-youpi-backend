@@ -4,7 +4,7 @@ require('dotenv').config({ path: '.env.production' });
 async function verifyProduction() {
   const BASE_URL = process.env.API_URL || 'http://localhost:8080';
   
-  console.log('🔍 Vérification de la production Youpi Mail...');
+  console.log('🔍 Vérification de la production Youpi...');
   
   const tests = [
     { name: 'Health Check', method: 'get', url: '/api/health' },
