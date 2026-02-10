@@ -24,7 +24,7 @@ function generateTemplate(destinator, data) {
               <p>${data.message}</p>
             </div>
             <div class="footer">
-              <p>Youpi &copy; 2026</p>
+              <p>Youpi. &copy; 2026</p>
             </div>
           </div>
         </body>
@@ -53,7 +53,7 @@ function generateTemplate(destinator, data) {
               <p>${data.message}</p>
             </div>
             <div class="footer">
-              <p>Youpi &copy; 2026</p>
+              <p>Youpi. &copy; 2026</p>
             </div>
           </div>
         </body>
@@ -82,7 +82,7 @@ function generateTemplate(destinator, data) {
               <p>${data.message}</p>
             </div>
             <div class="footer">
-              <p>Youpi &copy; 2026</p>
+              <p>Youpi. &copy; 2026</p>
             </div>
           </div>
         </body>
@@ -112,7 +112,7 @@ function generateTemplate(destinator, data) {
               <p>${data.message}</p>
             </div>
             <div class="footer">
-              <p>Youpi &copy; 2026</p>
+              <p>Youpi. &copy; 2026</p>
             </div>
           </div>
         </body>

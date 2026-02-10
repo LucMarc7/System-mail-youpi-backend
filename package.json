@@ -1,7 +1,7 @@
 {
   "name": "system-mail-youpi-backend",
   "version": "1.0.0",
-  "description": "Backend API pour Youpi avec intégration SendGrid et PostgreSQL",
+  "description": "Backend API pour Youpi. avec intégration SendGrid et PostgreSQL",
   "main": "src/index.js",
   "type": "commonjs",
   "engines": {
@@ -33,7 +33,7 @@
     "authentication",
     "nodemailer-alternative"
   ],
-  "author": "YoupiTeam <infos@ceoawardsdrc.com>",
+  "author": "Youpi. <infos@ceoawardsdrc.com>",
   "license": "MIT",
   "repository": {
     "type": "git",

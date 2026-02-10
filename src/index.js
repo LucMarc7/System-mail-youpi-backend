@@ -326,7 +326,7 @@ const createDefaultTemplates = async () => {
         {
           name: 'welcome',
           category: 'onboarding',
-          subject: 'Bienvenue chez Youpi!',
+          subject: 'Bienvenue chez Youpi.!',
           html_content: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
             <h1 style="color: #4F46E5;">Bienvenue {{user_name}} !</h1>
             <p>Merci de vous être inscrit à Youpi. Nous sommes ravis de vous accueillir.</p>
@@ -343,7 +343,7 @@ const createDefaultTemplates = async () => {
             <p>Si vous avez des questions, n'hésitez pas à répondre à cet email.</p>
             <p style="color: #6b7280; font-size: 14px; margin-top: 30px;">
               Cordialement,<br>
-              L'équipe Youpi
+              L'équipe Youpi.
             </p>
           </div>`,
           text_content: "Bienvenue {{user_name}} ! Merci de vous être inscrit à Youpi...",
@@ -461,7 +461,7 @@ const sendEmailViaAPI = async (emailData) => {
     to: emailData.to,
     from: {
       email: process.env.SMTP_SENDER,
-      name: emailData.senderName || 'Youpi'
+      name: emailData.senderName || 'Youpi.'
     },
     subject: emailData.subject,
     text: emailData.text,
@@ -767,7 +767,7 @@ app.post("/api/emails/send", authenticateToken, async (req, res) => {
       text: message,
       html: `<div>${message.replace(/\n/g, '<br>')}</div>`,
       replyTo: process.env.SMTP_SENDER,
-      senderName: 'Youpi'
+      senderName: 'Youpi.'
     });
     
     // Sauvegarder dans la base de données
@@ -1561,7 +1561,7 @@ app.post("/api/templates/:id/duplicate", authenticateToken, async (req, res) => 
 // Route racine (publique)
 app.get("/", (req, res) => {
   res.json({
-    message: "Youpi API avec Base de Données",
+    message: "Youpi. API avec Base de Données",
     status: "online",
     version: "3.3.0",
     timestamp: new Date().toISOString(),
@@ -1752,7 +1752,7 @@ const startServer = async () => {
     console.log("🚀 Démarrage du serveur HTTP...");
     const server = app.listen(PORT, HOST, () => {
       console.log("\n" + "=".repeat(70));
-      console.log("🚀 YOUPI API - DÉMARRÉE AVEC SUCCÈS");
+      console.log("🚀 YOUPI. API - DÉMARRÉE AVEC SUCCÈS");
       console.log("=".repeat(70));
       console.log(`🌐 URL: https://system-mail-youpi-backend.onrender.com`);
       console.log(`🔧 Port: ${PORT}`);
