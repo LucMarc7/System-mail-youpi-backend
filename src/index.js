@@ -760,33 +760,268 @@ app.post("/api/emails/send", authenticateToken, async (req, res) => {
     
     console.log(`📤 Envoi email de user ${user_id} à ${to}`);
     
-    // Envoyer via SendGrid
-    const sendResult = await sendEmailViaAPI({
+    // Récupérer l'email de l'utilisateur
+    const userResult = await dbPool.query('SELECT email FROM users WHERE id = $1', [user_id]);
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ success: false, error: "Utilisateur non trouvé" });
+    }
+    const userEmail = userResult.rows[0].email;
+    
+    // Validation réussie
+    console.log("✅ Validation réussie en", Date.now() - startTime, "ms");
+    
+    // VÉRIFICATION CRITIQUE DU CLIENT SENDGRID
+    console.log("🔄 Récupération client SendGrid API...");
+    let client;
+    try {
+      client = getSendGridClient();
+      console.log("✅ Client SendGrid API récupéré");
+    } catch (clientError) {
+      console.error("❌ ERREUR CLIENT SENDGRID:", clientError.message);
+      throw new Error(`Configuration SendGrid invalide: ${clientError.message}`);
+    }
+    
+    const senderEmail = process.env.SMTP_SENDER;
+    console.log(`📤 Préparation email via API Web: ${senderEmail} → ${to}`);
+    console.log(`   Reply-To: ${userEmail}`);
+    
+    // Fonction pour obtenir l'image en base64 (simulation - à adapter selon vos besoins)
+    const getBannerImageBase64 = () => {
+      // Ici vous pouvez charger une image depuis le système de fichiers
+      // ou utiliser une image codée en dur
+      try {
+        // Exemple: image de bannière par défaut
+        return null; // Retourne null pour utiliser le titre par défaut
+      } catch (error) {
+        console.error("❌ Erreur chargement image:", error);
+        return null;
+      }
+    };
+    
+    // OBTENIR L'IMAGE EN BASE64
+    console.log("🖼️  Chargement de l'image en Base64...");
+    const base64Image = getBannerImageBase64();
+    
+    if (base64Image) {
+      console.log(`✅ Image chargée avec succès (${Math.round(base64Image.length / 1024)} KB)`);
+    } else {
+      console.log("ℹ️  Aucune image disponible, utilisation du titre par défaut");
+    }
+    
+    // Génération du HTML selon le destinataire
+    let htmlContent = `
+    <!DOCTYPE html>
+    <html lang="fr">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>${subject}</title>
+        <style>
+            body {
+                font-family: 'Arial', sans-serif;
+                margin: 0;
+                padding: 0;
+                background-color: #f5f5f5;
+                line-height: 1.6;
+            }
+            .email-container {
+                max-width: 600px;
+                margin: 0 auto;
+                background-color: #ffffff;
+                border-radius: 10px;
+                overflow: hidden;
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            }
+            .header {
+                background-color: #007AFF;
+                ${base64Image ? 'padding: 0;' : 'padding: 20px;'}
+                text-align: center;
+            }
+            .banner {
+                width: 100%;
+                max-height: 200px;
+                object-fit: cover;
+                border-radius: 0;
+                display: block;
+            }
+            .header-title {
+                color: white;
+                font-size: 24px;
+                margin: 0;
+                padding: 20px;
+            }
+            .content {
+                padding: 30px;
+                color: #333333;
+            }
+            .subject {
+                color: #007AFF;
+                font-size: 24px;
+                margin-top: 0;
+                margin-bottom: 20px;
+                font-weight: bold;
+            }
+            .message {
+                color: #555555;
+                font-size: 16px;
+                line-height: 1.8;
+                white-space: pre-line;
+            }
+            .divider {
+                height: 1px;
+                background-color: #eeeeee;
+                margin: 30px 0;
+            }
+            .sender-info {
+                background-color: #f9f9f9;
+                padding: 20px;
+                border-radius: 8px;
+                border-left: 4px solid #007AFF;
+                margin-top: 30px;
+            }
+            .footer {
+                background-color: #2c3e50;
+                color: #ffffff;
+                padding: 25px;
+                text-align: center;
+            }
+            .contact-info {
+                margin-bottom: 15px;
+                font-size: 14px;
+            }
+            .phone-numbers {
+                font-weight: bold;
+                color: #007AFF;
+                margin: 10px 0;
+                line-height: 1.8;
+            }
+            .copyright {
+                font-size: 12px;
+                color: #95a5a6;
+                margin-top: 15px;
+                border-top: 1px solid #34495e;
+                padding-top: 15px;
+            }
+            .youpi-badge {
+                display: inline-block;
+                background-color: #007AFF;
+                color: white;
+                padding: 5px 15px;
+                border-radius: 20px;
+                font-size: 12px;
+                margin-top: 10px;
+            }
+            @media (max-width: 600px) {
+                .content {
+                    padding: 20px;
+                }
+                .subject {
+                    font-size: 20px;
+                }
+                .message {
+                    font-size: 14px;
+                }
+                .phone-numbers {
+                    font-size: 14px;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <div class="email-container">
+            <!-- HEADER AVEC BANNIÈRE EN BASE64 -->
+            <div class="header">
+                ${base64Image ? 
+                  `<img src="${base64Image}" 
+                        alt="Bannière Youpi Mail" 
+                        class="banner">` : 
+                  `<h1 class="header-title">✉️ Youpi Mail</h1>`}
+            </div>
+            
+            <!-- CONTENU PRINCIPAL -->
+            <div class="content">
+                <h1 class="subject">${subject}</h1>
+                
+                <div class="message">
+                    ${message.replace(/\n/g, '<br>')}
+                </div>
+                
+                <div class="divider"></div>
+                
+                <!-- INFO EXPÉDITEUR -->
+                <div class="sender-info">
+                    <p><strong>Expéditeur :</strong> ${userEmail}</p>
+                    <div class="youpi-badge">Envoyé via Youpi Mail</div>
+                </div>
+            </div>
+            
+            <!-- FOOTER AVEC COORDONNÉES -->
+            <div class="footer">
+                <div class="contact-info">
+                    <p>Besoin d'aide ? Contactez-nous :</p>
+                    <div class="phone-numbers">
+                        +243 856 163 550<br>
+                        +243 834 171 852
+                    </div>
+                </div>
+                
+                <div class="copyright">
+                    © ${new Date().getFullYear()} Youpi Mail. Tous droits réservés.<br>
+                    <small>Service d'envoi d'emails professionnels</small>
+                </div>
+            </div>
+        </div>
+    </body>
+    </html>`;
+
+    // ENVOI VIA SENDGRID WEB API
+    console.log("⏳ Tentative d'envoi via SendGrid Web API...");
+    console.log("   Méthode: HTTPS (port 443)");
+    console.log(`   Image: ${base64Image ? 'Intégrée (Base64)' : 'Titre par défaut'}`);
+    
+    const emailData = {
       to: to,
       subject: subject,
       text: message,
-      html: `<div>${message.replace(/\n/g, '<br>')}</div>`,
-      replyTo: process.env.SMTP_SENDER,
-      senderName: 'Youpi.'
-    });
+      html: htmlContent,
+      replyTo: userEmail,
+      senderName: 'Youpi Mail'
+    };
+
+    const sendStartTime = Date.now();
+    const result = await sendEmailViaAPI(emailData);
+    const sendTime = Date.now() - sendStartTime;
+    
+    console.log(`✅ EMAIL ENVOYÉ AVEC SUCCÈS en ${sendTime}ms`);
+    console.log(`   Message ID: ${result.messageId || 'N/A'}`);
+    console.log(`   Status Code: ${result.statusCode}`);
+    console.log("=".repeat(70) + "\n");
+    
+    const totalTime = Date.now() - startTime;
     
     // Sauvegarder dans la base de données
     const emailResult = await dbPool.query(
       `INSERT INTO emails (user_id, to_email, subject, content, status, sendgrid_message_id, folder) 
        VALUES ($1, $2, $3, $4, $5, $6, $7) 
        RETURNING id, created_at`,
-      [user_id, to, subject, message, 'sent', sendResult.messageId, folder]
+      [user_id, to, subject, message, 'sent', result.messageId, folder]
     );
     
-    const totalTime = Date.now() - startTime;
-    
+    // Réponse au client
     res.json({
       success: true,
-      message: "Email envoyé et sauvegardé",
-      email_id: emailResult.rows[0].id,
-      sendgrid_message_id: sendResult.messageId,
+      messageId: result.messageId,
+      timestamp: new Date().toISOString(),
+      details: `Email envoyé avec succès de "${senderEmail}" à "${to}" via SendGrid Web API`,
+      from: senderEmail,
+      replyTo: userEmail,
+      to: to,
+      subject: subject,
       processingTime: `${totalTime}ms`,
-      requestId: requestId
+      sendMethod: "SendGrid Web API (HTTPS)",
+      imageMethod: base64Image ? "Base64 (Intégrée)" : "Titre par défaut",
+      requestId: requestId,
+      email_id: emailResult.rows[0].id
     });
     
   } catch (error) {
