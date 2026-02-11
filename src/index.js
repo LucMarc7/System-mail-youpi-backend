@@ -933,9 +933,9 @@ app.post("/api/emails/send", authenticateToken, async (req, res) => {
             <div class="header">
                 ${base64Image ? 
                   `<img src="${base64Image}" 
-                        alt="Bannière Youpi Mail" 
+                        alt="Bannière Youpi." 
                         class="banner">` : 
-                  `<h1 class="header-title">✉️ Youpi Mail</h1>`}
+                  `<h1 class="header-title">Youpi.</h1>`}
             </div>
             
             <!-- CONTENU PRINCIPAL -->
@@ -951,7 +951,7 @@ app.post("/api/emails/send", authenticateToken, async (req, res) => {
                 <!-- INFO EXPÉDITEUR -->
                 <div class="sender-info">
                     <p><strong>Expéditeur :</strong> ${userEmail}</p>
-                    <div class="youpi-badge">Envoyé via Youpi Mail</div>
+                    <div class="youpi-badge">Envoyé via Youpi.</div>
                 </div>
             </div>
             
@@ -985,7 +985,7 @@ app.post("/api/emails/send", authenticateToken, async (req, res) => {
       text: message,
       html: htmlContent,
       replyTo: userEmail,
-      senderName: 'Youpi Mail'
+      senderName: 'Youpi.'
     };
 
     const sendStartTime = Date.now();
