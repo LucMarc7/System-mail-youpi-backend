@@ -15,12 +15,12 @@ const HOST = '0.0.0.0';
 let dbPool;
 const initializeDatabase = () => {
   console.log("=".repeat(60));
-  console.log("🗄️  INITIALISATION BASE DE DONNÉES POSTGRESQL");
+  console.log("INITIALISATION BASE DE DONNÉES POSTGRESQL");
   console.log("=".repeat(60));
   
   if (!process.env.DATABASE_URL) {
-    console.error('❌ ERREUR: DATABASE_URL non définie sur Render');
-    console.error('   ➡️ Créez une base PostgreSQL et ajoutez DATABASE_URL dans Environment');
+    console.error('ERREUR: DATABASE_URL non définie sur Render');
+    console.error('Créez une base PostgreSQL et ajoutez DATABASE_URL dans Environment');
     throw new Error("Configuration base de données manquante");
   }
   
@@ -35,377 +35,85 @@ const initializeDatabase = () => {
       connectionTimeoutMillis: 2000
     });
     
-    console.log('✅ Pool PostgreSQL créé');
+    console.log('Pool PostgreSQL créé');
     console.log("=".repeat(60));
     return dbPool;
   } catch (dbError) {
-    console.error("💥 ERREUR FATALE PostgreSQL:", dbError.message);
+    console.error("ERREUR FATALE PostgreSQL:", dbError.message);
     throw dbError;
-  }
-};
-
-// ===== CONFIGURATION SENDGRID API =====
-const initializeSendGridClient = () => {
-  console.log("=".repeat(60));
-  console.log("🔄 INITIALISATION CLIENT SENDGRID API");
-  console.log("=".repeat(60));
-  
-  if (!process.env.SENDGRID_API_KEY) {
-    console.error('❌ ERREUR: SENDGRID_API_KEY non définie');
-    throw new Error("SENDGRID_API_KEY manquante");
-  }
-  
-  if (!process.env.SMTP_SENDER) {
-    console.error('❌ ERREUR: SMTP_SENDER non définie');
-    throw new Error("SMTP_SENDER manquante");
-  }
-  
-  console.log("✅ SENDGRID_API_KEY: Présente");
-  console.log("✅ SMTP_SENDER:", process.env.SMTP_SENDER);
-  
-  try {
-    sgMail.setApiKey(process.env.SENDGRID_API_KEY);
-    console.log("✅ Client SendGrid API initialisé");
-    console.log("=".repeat(60));
-    return sgMail;
-  } catch (error) {
-    console.error("❌ Erreur SendGrid:", error.message);
-    throw error;
-  }
-};
-
-let sendGridClient = null;
-const getSendGridClient = () => {
-  if (!sendGridClient) sendGridClient = initializeSendGridClient();
-  return sendGridClient;
-};
-
-const testDatabaseConnection = async () => {
-  try {
-    const client = await dbPool.connect();
-    await client.query('SELECT NOW()');
-    client.release();
-    console.log('✅ PostgreSQL connecté avec succès');
-    return true;
-  } catch (err) {
-    console.error('❌ Connexion PostgreSQL échouée:', err.message);
-    return false;
   }
 };
 
 // ===== FONCTION POUR CHARGER L'IMAGE EN BASE64 =====
 const getBannerImageBase64 = () => {
   try {
-    const imagePath = path.join(__dirname, 'assets', 'youpi-banner.png');
+    const imagePath = path.join(__dirname, 'assets', 'banner-youpi.png');
     
     if (fs.existsSync(imagePath)) {
       const imageBuffer = fs.readFileSync(imagePath);
-      const base64Image = `data:image/png;base64,${imageBuffer.toString('base64')}`;
-      console.log(`✅ Image chargée avec succès (${Math.round(imageBuffer.length / 1024)} KB)`);
-      return base64Image;
+      const base64Image = imageBuffer.toString('base64');
+      const mimeType = 'image/png';
+      console.log(`Image chargée: ${imagePath} (${Math.round(imageBuffer.length / 1024)} KB)`);
+      return `data:${mimeType};base64,${base64Image}`;
     } else {
-      console.log("ℹ️ Fichier image non trouvé dans /assets/youpi-banner.png, utilisation du titre par défaut");
+      console.log(`Image non trouvée: ${imagePath}, utilisation du titre par défaut`);
       return null;
     }
   } catch (error) {
-    console.error("❌ Erreur chargement image:", error.message);
+    console.error("Ereur chargement image:", error.message);
     return null;
   }
 };
 
-// ===== DESIGN EMAIL UNIFIÉ POUR TOUS LES DESTINATAIRES =====
-const getUnifiedEmailDesign = (message, subject, userEmail, destinatorId = 'other') => {
-  const base64Image = getBannerImageBase64();
-  const currentYear = new Date().getFullYear();
+// ===== CONFIGURATION SENDGRID API =====
+const initializeSendGridClient = () => {
+  console.log("=".repeat(60));
+  console.log("INITIALISATION CLIENT SENDGRID API");
+  console.log("=".repeat(60));
   
-  // Styles selon le type de destinataire
-  let headerGradient, accentColor, fontFamily;
-  
-  switch(destinatorId) {
-    case 'marketing':
-      headerGradient = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
-      accentColor = '#667eea';
-      fontFamily = "'Arial', 'Helvetica', sans-serif";
-      break;
-    case 'partner':
-      headerGradient = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
-      accentColor = '#10b981';
-      fontFamily = "'Georgia', 'Times New Roman', serif";
-      break;
-    case 'ad':
-      headerGradient = 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)';
-      accentColor = '#f59e0b';
-      fontFamily = "'Helvetica', 'Arial', sans-serif";
-      break;
-    default:
-      headerGradient = 'linear-gradient(135deg, #6b7280 0%, #4b5563 100%)';
-      accentColor = '#6b7280';
-      fontFamily = "'Arial', 'Helvetica', sans-serif";
+  if (!process.env.SENDGRID_API_KEY) {
+    console.error('ERREUR: SENDGRID_API_KEY non définie');
+    throw new Error("SENDGRID_API_KEY manquante");
   }
+  
+  if (!process.env.SMTP_SENDER) {
+    console.error('ERREUR: SMTP_SENDER non définie');
+    throw new Error("SMTP_SENDER manquante");
+  }
+  
+  console.log("SENDGRID_API_KEY: Présente");
+  console.log("SMTP_SENDER:", process.env.SMTP_SENDER);
+  
+  try {
+    sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+    console.log("Client SendGrid API initialisé");
+    console.log("=".repeat(60));
+    return sgMail;
+  } catch (error) {
+    console.error("Erreur SendGrid:", error.message);
+    throw error;
+  }
+};
 
-  return `
-  <!DOCTYPE html>
-  <html lang="fr">
-  <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <title>${subject}</title>
-    <style>
-      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-      
-      * {
-        margin: 0;
-        padding: 0;
-        box-sizing: border-box;
-      }
-      
-      body {
-        font-family: ${fontFamily};
-        background-color: #f3f4f6;
-        margin: 0;
-        padding: 20px;
-        line-height: 1.6;
-      }
-      
-      .email-wrapper {
-        max-width: 650px;
-        margin: 0 auto;
-        background-color: #ffffff;
-        border-radius: 16px;
-        overflow: hidden;
-        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.08);
-      }
-      
-      /* HEADER avec image Base64 */
-      .header {
-        width: 100%;
-        background: ${headerGradient};
-        text-align: center;
-      }
-      
-      .banner-img {
-        width: 100%;
-        max-height: 220px;
-        object-fit: cover;
-        display: block;
-        border-bottom: 4px solid rgba(255, 255, 255, 0.2);
-      }
-      
-      .header-title {
-        color: white;
-        font-size: 28px;
-        font-weight: 700;
-        padding: 30px 20px;
-        margin: 0;
-        text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.1);
-        letter-spacing: 1px;
-      }
-      
-      /* BODY avec texte justifié */
-      .content {
-        padding: 45px 40px;
-        background: white;
-      }
-      
-      .subject-line {
-        color: ${accentColor};
-        font-size: 22px;
-        font-weight: 600;
-        margin-bottom: 25px;
-        padding-bottom: 15px;
-        border-bottom: 2px solid ${accentColor}30;
-        text-transform: capitalize;
-      }
-      
-      .message-body {
-        font-size: 16px;
-        color: #2d3748;
-        line-height: 1.8;
-        text-align: justify;
-        margin-bottom: 30px;
-        word-wrap: break-word;
-      }
-      
-      .message-body p {
-        margin-bottom: 15px;
-        text-align: justify;
-      }
-      
-      .message-body a {
-        color: ${accentColor};
-        text-decoration: none;
-        font-weight: 600;
-      }
-      
-      .message-body a:hover {
-        text-decoration: underline;
-      }
-      
-      .sender-info {
-        background-color: #f8fafc;
-        padding: 20px 25px;
-        border-radius: 12px;
-        border-left: 4px solid ${accentColor};
-        margin-top: 30px;
-        font-size: 14px;
-        color: #4a5568;
-      }
-      
-      .sender-info strong {
-        color: ${accentColor};
-      }
-      
-      .youpi-badge {
-        display: inline-block;
-        background-color: ${accentColor}10;
-        color: ${accentColor};
-        padding: 6px 16px;
-        border-radius: 30px;
-        font-size: 12px;
-        font-weight: 600;
-        margin-top: 12px;
-        border: 1px solid ${accentColor}30;
-      }
-      
-      /* FOOTER avec numéros de téléphone */
-      .footer {
-        background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
-        color: white;
-        padding: 35px 30px;
-        text-align: center;
-      }
-      
-      .contact-title {
-        font-size: 16px;
-        font-weight: 600;
-        margin-bottom: 20px;
-        color: #e2e8f0;
-        text-transform: uppercase;
-        letter-spacing: 2px;
-      }
-      
-      .phone-numbers {
-        font-size: 20px;
-        font-weight: 700;
-        color: #fbbf24;
-        margin: 20px 0;
-        line-height: 1.8;
-        background: rgba(0, 0, 0, 0.2);
-        padding: 15px;
-        border-radius: 50px;
-        display: inline-block;
-      }
-      
-      .phone-numbers span {
-        display: inline-block;
-        margin: 0 10px;
-      }
-      
-      .contact-message {
-        font-size: 14px;
-        color: #94a3b8;
-        margin: 15px 0 5px;
-        font-style: italic;
-      }
-      
-      .company-name {
-        font-size: 18px;
-        font-weight: 700;
-        margin: 25px 0 10px;
-        color: white;
-      }
-      
-      .copyright {
-        font-size: 12px;
-        color: #94a3b8;
-        margin-top: 25px;
-        padding-top: 20px;
-        border-top: 1px solid #334155;
-      }
-      
-      @media (max-width: 600px) {
-        .content {
-          padding: 30px 20px;
-        }
-        .subject-line {
-          font-size: 20px;
-        }
-        .message-body {
-          font-size: 15px;
-        }
-        .phone-numbers {
-          font-size: 18px;
-          padding: 12px;
-        }
-      }
-    </style>
-  </head>
-  <body>
-    <div class="email-wrapper">
-      
-      <!-- HEADER avec image Base64 -->
-      <div class="header">
-        ${base64Image 
-          ? `<img src="${base64Image}" alt="Youpi. - Solution Email Professionnelle" class="banner-img">`
-          : `<h1 class="header-title">📧 Youpi.</h1>`
-        }
-      </div>
-      
-      <!-- BODY avec contenu justifié -->
-      <div class="content">
-        <h2 class="subject-line">${subject}</h2>
-        
-        <div class="message-body">
-          ${message.replace(/\n/g, '<br>').split('<br>').map(para => 
-            para.trim() ? `<p>${para.trim()}</p>` : ''
-          ).join('')}
-        </div>
-        
-        <div class="sender-info">
-          <p style="margin: 0;">
-            <strong>✉️ Expéditeur :</strong> ${userEmail}<br>
-            <span style="color: #64748b; font-size: 13px;">Cet email a été envoyé depuis l'application Youpi.</span>
-          </p>
-          <div class="youpi-badge">
-            🚀 Service d'envoi professionnel
-          </div>
-        </div>
-      </div>
-      
-      <!-- FOOTER avec numéros de téléphone -->
-      <div class="footer">
-        <div class="contact-title">📞 SERVICE OPÉRATIONS</div>
-        
-        <div class="contact-message">
-          Pour toute prise de contact avec un service d'opération, appelez :
-        </div>
-        
-        <div class="phone-numbers">
-          <span>📱 +243 834 171 852</span><br>
-          <span style="font-size: 16px; color: #94a3b8;">ou</span><br>
-          <span>📱 +243 856 163 550</span>
-        </div>
-        
-        <div class="company-name">
-          YOUPI. MAIL
-        </div>
-        
-        <div style="font-size: 13px; color: #cbd5e1; margin-top: 10px;">
-          Solution d'envoi d'emails professionnels
-        </div>
-        
-        <div class="copyright">
-          © ${currentYear} Youpi. Tous droits réservés.<br>
-          <span style="color: #64748b; font-size: 11px;">
-            Conçu avec ❤️ en RDC
-          </span>
-        </div>
-      </div>
-      
-    </div>
-  </body>
-  </html>`;
+// Initialiser les clients
+let sendGridClient = null;
+const getSendGridClient = () => {
+  if (!sendGridClient) sendGridClient = initializeSendGridClient();
+  return sendGridClient;
+};
+
+// Fonction pour tester la connexion à la base de données
+const testDatabaseConnection = async () => {
+  try {
+    const client = await dbPool.connect();
+    await client.query('SELECT NOW()');
+    client.release();
+    console.log('PostgreSQL connecté avec succès');
+    return true;
+  } catch (err) {
+    console.error('Connexion PostgreSQL échouée:', err.message);
+    return false;
+  }
 };
 
 // ===== CRÉATION/MISE À JOUR DES TABLES =====
@@ -420,19 +128,20 @@ const createTables = async () => {
     
     if (!tablesExist.rows[0].exists) {
       await createNewTables();
-      console.log("✅ Tables créées avec succès");
+      console.log("Tables créées avec succès");
     } else {
       await updateExistingTables();
-      console.log("✅ Tables mises à jour avec succès");
+      console.log("Tables mises à jour avec succès");
     }
   } catch (error) {
-    console.error("❌ Erreur création/mise à jour tables:", error.message);
+    console.error("Erreur création/mise à jour tables:", error.message);
     throw error;
   }
 };
 
 const createNewTables = async () => {
   const createTablesSQL = `
+    -- Table utilisateurs
     CREATE TABLE users (
       id SERIAL PRIMARY KEY,
       email VARCHAR(255) UNIQUE NOT NULL,
@@ -441,6 +150,7 @@ const createNewTables = async () => {
       created_at TIMESTAMP DEFAULT NOW()
     );
 
+    -- Table emails
     CREATE TABLE emails (
       id SERIAL PRIMARY KEY,
       user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
@@ -457,6 +167,7 @@ const createNewTables = async () => {
       updated_at TIMESTAMP DEFAULT NOW()
     );
 
+    -- Table pièces jointes
     CREATE TABLE attachments (
       id SERIAL PRIMARY KEY,
       email_id INTEGER REFERENCES emails(id) ON DELETE CASCADE,
@@ -465,6 +176,7 @@ const createNewTables = async () => {
       created_at TIMESTAMP DEFAULT NOW()
     );
 
+    -- Table templates email
     CREATE TABLE email_templates (
       id SERIAL PRIMARY KEY,
       name VARCHAR(100) UNIQUE NOT NULL,
@@ -480,6 +192,7 @@ const createNewTables = async () => {
       updated_at TIMESTAMP DEFAULT NOW()
     );
 
+    -- Table des versions des templates
     CREATE TABLE template_versions (
       id SERIAL PRIMARY KEY,
       template_id INTEGER REFERENCES email_templates(id) ON DELETE CASCADE,
@@ -491,6 +204,7 @@ const createNewTables = async () => {
       created_at TIMESTAMP DEFAULT NOW()
     );
 
+    -- TABLE DES DESIGNS PAR DESTINATAIRE
     CREATE TABLE email_designs (
       id SERIAL PRIMARY KEY,
       destinator_id VARCHAR(50) UNIQUE NOT NULL,
@@ -506,6 +220,7 @@ const createNewTables = async () => {
       updated_at TIMESTAMP DEFAULT NOW()
     );
 
+    -- Créer des index
     CREATE INDEX idx_emails_user_id ON emails(user_id);
     CREATE INDEX idx_emails_folder ON emails(folder);
     CREATE INDEX idx_emails_created_at ON emails(created_at DESC);
@@ -529,28 +244,34 @@ const updateExistingTables = async () => {
   const existingColumns = checkColumns.rows.map(row => row.column_name);
   
   if (!existingColumns.includes('folder')) {
+    console.log("Ajout de la colonne 'folder' à la table emails...");
     await dbPool.query('ALTER TABLE emails ADD COLUMN folder VARCHAR(50) DEFAULT \'inbox\'');
   }
   
   if (!existingColumns.includes('updated_at')) {
+    console.log("Ajout de la colonne 'updated_at' à la table emails...");
     await dbPool.query('ALTER TABLE emails ADD COLUMN updated_at TIMESTAMP DEFAULT NOW()');
   }
   
   if (!existingColumns.includes('destinator_id')) {
+    console.log("Ajout de la colonne 'destinator_id' à la table emails...");
     await dbPool.query('ALTER TABLE emails ADD COLUMN destinator_id VARCHAR(50)');
   }
   
   if (!existingColumns.includes('design_id')) {
+    console.log("Ajout de la colonne 'design_id' à la table emails...");
     await dbPool.query('ALTER TABLE emails ADD COLUMN design_id INTEGER');
   }
   
   const checkTemplateTable = await dbPool.query(`
     SELECT EXISTS (
-      SELECT FROM information_schema.tables WHERE table_name = 'email_templates'
+      SELECT FROM information_schema.tables 
+      WHERE table_name = 'email_templates'
     )
   `);
   
   if (!checkTemplateTable.rows[0].exists) {
+    console.log("Création de la table 'email_templates'...");
     await dbPool.query(`
       CREATE TABLE email_templates (
         id SERIAL PRIMARY KEY,
@@ -571,11 +292,13 @@ const updateExistingTables = async () => {
   
   const checkVersionTable = await dbPool.query(`
     SELECT EXISTS (
-      SELECT FROM information_schema.tables WHERE table_name = 'template_versions'
+      SELECT FROM information_schema.tables 
+      WHERE table_name = 'template_versions'
     )
   `);
   
   if (!checkVersionTable.rows[0].exists) {
+    console.log("Création de la table 'template_versions'...");
     await dbPool.query(`
       CREATE TABLE template_versions (
         id SERIAL PRIMARY KEY,
@@ -592,11 +315,13 @@ const updateExistingTables = async () => {
   
   const checkDesignsTable = await dbPool.query(`
     SELECT EXISTS (
-      SELECT FROM information_schema.tables WHERE table_name = 'email_designs'
+      SELECT FROM information_schema.tables 
+      WHERE table_name = 'email_designs'
     )
   `);
   
   if (!checkDesignsTable.rows[0].exists) {
+    console.log("Création de la table 'email_designs'...");
     await dbPool.query(`
       CREATE TABLE email_designs (
         id SERIAL PRIMARY KEY,
@@ -612,12 +337,15 @@ const updateExistingTables = async () => {
         created_at TIMESTAMP DEFAULT NOW(),
         updated_at TIMESTAMP DEFAULT NOW()
       );
+      
       CREATE INDEX idx_email_designs_destinator_id ON email_designs(destinator_id);
     `);
   }
   
   const checkIndexes = await dbPool.query(`
-    SELECT indexname FROM pg_indexes WHERE tablename = 'emails'
+    SELECT indexname 
+    FROM pg_indexes 
+    WHERE tablename = 'emails'
   `);
   
   const existingIndexes = checkIndexes.rows.map(row => row.indexname);
@@ -625,19 +353,23 @@ const updateExistingTables = async () => {
   if (!existingIndexes.some(idx => idx.includes('idx_emails_user_id'))) {
     await dbPool.query('CREATE INDEX IF NOT EXISTS idx_emails_user_id ON emails(user_id)');
   }
+  
   if (!existingIndexes.some(idx => idx.includes('idx_emails_folder'))) {
     await dbPool.query('CREATE INDEX IF NOT EXISTS idx_emails_folder ON emails(folder)');
   }
+  
   if (!existingIndexes.some(idx => idx.includes('idx_emails_created_at'))) {
     await dbPool.query('CREATE INDEX IF NOT EXISTS idx_emails_created_at ON emails(created_at DESC)');
   }
+  
   if (!existingIndexes.some(idx => idx.includes('idx_emails_destinator_id'))) {
     await dbPool.query('CREATE INDEX IF NOT EXISTS idx_emails_destinator_id ON emails(destinator_id)');
   }
   
-  console.log("✅ Structure de base de données vérifiée et mise à jour");
+  console.log("Structure de base de données vérifiée et mise à jour");
 };
 
+// ===== CRÉATION DES TEMPLATES ET DESIGNS PAR DÉFAUT =====
 const createDefaultTemplatesAndDesigns = async () => {
   try {
     const existingTemplates = await dbPool.query(
@@ -645,25 +377,59 @@ const createDefaultTemplatesAndDesigns = async () => {
     );
     
     if (parseInt(existingTemplates.rows[0].count) === 0) {
-      console.log("📋 Création des templates système par défaut...");
+      console.log("Création des templates système par défaut...");
       
       const defaultTemplates = [
         {
           name: 'welcome',
           category: 'onboarding',
           subject: 'Bienvenue chez Youpi.!',
-          html_content: '<p>Template d\'accueil</p>',
-          text_content: "Bienvenue chez Youpi!",
-          variables: '[]',
+          html_content: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+            <h1 style="color: #4F46E5;">Bienvenue {{user_name}} !</h1>
+            <p>Merci de vous être inscrit à Youpi. Nous sommes ravis de vous accueillir.</p>
+            <div style="background-color: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0;">
+              <h3>Votre compte est prêt !</h3>
+              <p>Vous pouvez maintenant :</p>
+              <ul>
+                <li>Envoyer et recevoir des emails</li>
+                <li>Organiser vos emails dans des dossiers</li>
+                <li>Rechercher facilement vos messages</li>
+                <li>Utiliser l'application mobile</li>
+              </ul>
+            </div>
+            <p>Si vous avez des questions, n'hésitez pas à répondre à cet email.</p>
+            <p style="color: #6b7280; font-size: 14px; margin-top: 30px;">
+              Cordialement,<br>
+              L'équipe Youpi.
+            </p>
+          </div>`,
+          text_content: "Bienvenue {{user_name}} ! Merci de vous être inscrit à Youpi...",
+          variables: '["user_name", "user_email"]',
           is_system: true
         },
         {
           name: 'password_reset',
           category: 'security',
           subject: 'Réinitialisation de votre mot de passe',
-          html_content: '<p>Réinitialisation du mot de passe</p>',
-          text_content: "Réinitialisation du mot de passe",
-          variables: '[]',
+          html_content: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+            <h1 style="color: #4F46E5;">Réinitialisation du mot de passe</h1>
+            <p>Bonjour {{user_name}},</p>
+            <p>Vous avez demandé la réinitialisation de votre mot de passe Youpi.</p>
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="{{reset_link}}" style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">
+                Réinitialiser mon mot de passe
+              </a>
+            </div>
+            <p style="color: #6b7280; font-size: 14px;">
+              Ce lien expirera dans {{expiry_hours}} heures.<br>
+              Si vous n'avez pas fait cette demande, ignorez simplement cet email.
+            </p>
+            <p style="color: #9ca3af; font-size: 12px; margin-top: 30px;">
+              Sécurité : Ne partagez jamais ce lien avec qui que ce soit.
+            </p>
+          </div>`,
+          text_content: "Réinitialisation du mot de passe. Cliquez sur : {{reset_link}}",
+          variables: '["user_name", "reset_link", "expiry_hours"]',
           is_system: true
         }
       ];
@@ -672,51 +438,284 @@ const createDefaultTemplatesAndDesigns = async () => {
         await dbPool.query(
           `INSERT INTO email_templates (name, category, subject, html_content, text_content, variables, is_system) 
            VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-          [template.name, template.category, template.subject, template.html_content, template.text_content, template.variables, template.is_system]
+          [
+            template.name,
+            template.category,
+            template.subject,
+            template.html_content,
+            template.text_content,
+            template.variables,
+            template.is_system
+          ]
         );
       }
+      
       console.log(`✅ ${defaultTemplates.length} templates système créés`);
     }
 
-    const existingDesigns = await dbPool.query('SELECT COUNT(*) FROM email_designs');
+    // === CRÉATION DES DESIGNS PAR DESTINATAIRE ===
+    const existingDesigns = await dbPool.query(
+      'SELECT COUNT(*) FROM email_designs'
+    );
     
     if (parseInt(existingDesigns.rows[0].count) === 0) {
-      console.log("📋 Création des designs par destinataire...");
+      console.log("Création des designs par destinataire...");
       
+      // Charger l'image en base64
+      const bannerBase64 = getBannerImageBase64();
+      const bannerHtml = bannerBase64 
+        ? `<img src="${bannerBase64}" alt="Youpi. Banner" style="width: 100%; max-width: 600px; height: auto; display: block; border-radius: 8px 8px 0 0;">`
+        : `<div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; text-align: center; border-radius: 8px 8px 0 0;">
+            <h1 style="color: white; margin: 0; font-size: 28px;">Youpi.</h1>
+          </div>`;
+
+      const footerHtml = `
+        <div style="background: #1a2634; padding: 30px 20px; text-align: center; border-radius: 0 0 8px 8px;">
+          <p style="color: #ffffff; margin: 0 0 15px 0; font-size: 16px; font-weight: 500;">
+            Pour plus d'infos
+          </p>
+          <div style="display: inline-block; background: rgba(255,255,255,0.1); padding: 15px 25px; border-radius: 50px; margin-bottom: 20px;">
+            <p style="color: #ffffff; margin: 0; font-size: 18px; font-weight: bold;">
+              +243 834 171 852  /  +243 856 163 550
+            </p>
+          </div>
+          <p style="color: #9ca3af; margin: 0; font-size: 12px;">
+            © ${new Date().getFullYear()} Youpi. Tous droits réservés.<br>
+            Service d'envoi d'emails professionnels
+          </p>
+        </div>
+      `;
+
+      const baseStyles = `
+        <style>
+          body { 
+            font-family: 'Segoe UI', Arial, sans-serif; 
+            line-height: 1.6; 
+            margin: 0; 
+            padding: 20px; 
+            background-color: #f5f5f5;
+          }
+          .email-wrapper {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+          }
+          .content-body {
+            padding: 35px 30px;
+            text-align: justify;
+            font-size: 16px;
+            color: #2d3748;
+          }
+          .content-body p {
+            margin: 0 0 15px 0;
+            text-align: justify;
+          }
+        </style>
+      `;
+
       const defaultDesigns = [
         {
           destinator_id: 'marketing',
           design_name: 'Design Marketing - Promotionnel',
-          subject: '✨ {{subject}} - Offre spéciale',
-          html_content: '{{contenu_principal}}',
-          text_content: '{{contenu_principal}}',
+          subject: '{{subject}} - Offre spéciale Youpi.',
+          html_content: `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  ${baseStyles}
+  <style>
+    .header-marketing { background: linear-gradient(135deg, #FF6B6B 0%, #FF8E53 100%); }
+    .accent-marketing { color: #FF6B6B; border-bottom: 3px solid #FF6B6B; }
+    .button-marketing { 
+      background: linear-gradient(135deg, #FF6B6B 0%, #FF8E53 100%);
+      color: white;
+      padding: 14px 35px;
+      border-radius: 50px;
+      text-decoration: none;
+      font-weight: bold;
+      display: inline-block;
+      box-shadow: 0 4px 15px rgba(255,107,107,0.3);
+    }
+  </style>
+</head>
+<body>
+  <div class="email-wrapper">
+    <!-- HEADER avec image base64 -->
+    <div class="header-marketing">
+      ${bannerHtml}
+    </div>
+    
+    <!-- BODY avec texte justifié -->
+    <div class="content-body">
+      <h2 style="color: #FF6B6B; margin-top: 0; border-bottom: 2px solid #FFE5E5; padding-bottom: 15px;">
+        ${'{{subject}}'.replace(/[{}]/g, '')}
+      </h2>
+      <div style="text-align: justify;">
+        {{contenu_principal}}
+      </div>
+    </div>
+    
+    <!-- FOOTER avec numéros de contact -->
+    ${footerHtml}
+  </div>
+</body>
+</html>`,
+          text_content: "{{subject}}\n\n{{contenu_principal}}\n\nPour la prise de contact avec un service d'opération appeler : +243 834 171 852 / +243 856 163 550",
           variables: '["contenu_principal", "subject"]',
           category: 'marketing'
         },
         {
           destinator_id: 'partner',
           design_name: 'Design Partenaire - Professionnel',
-          subject: '🤝 {{subject}} - Partenariat',
-          html_content: '{{contenu_principal}}',
-          text_content: '{{contenu_principal}}',
+          subject: '{{subject}} - Partenariat Youpi.',
+          html_content: `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  ${baseStyles}
+  <style>
+    .header-partner { background: linear-gradient(135deg, #0F4C81 0%, #2C73D2 100%); }
+    .accent-partner { color: #0F4C81; border-bottom: 3px solid #0F4C81; }
+    .button-partner { 
+      background: #0F4C81;
+      color: white;
+      padding: 12px 30px;
+      border-radius: 6px;
+      text-decoration: none;
+      font-weight: 600;
+      display: inline-block;
+    }
+  </style>
+</head>
+<body>
+  <div class="email-wrapper">
+    <!-- HEADER avec image base64 -->
+    <div class="header-partner">
+      ${bannerHtml}
+    </div>
+    
+    <!-- BODY avec texte justifié -->
+    <div class="content-body">
+      <h2 style="color: #0F4C81; margin-top: 0; border-bottom: 2px solid #E8F0FE; padding-bottom: 15px;">
+        ${'{{subject}}'.replace(/[{}]/g, '')}
+      </h2>
+      <div style="text-align: justify;">
+        {{contenu_principal}}
+      </div>
+    </div>
+    
+    <!-- FOOTER avec numéros de contact -->
+    ${footerHtml}
+  </div>
+</body>
+</html>`,
+          text_content: "{{subject}}\n\n{{contenu_principal}}\n\nPour la prise de contact avec un service d'opération appeler : +243 834 171 852 / +243 856 163 550",
           variables: '["contenu_principal", "subject"]',
           category: 'professional'
         },
         {
           destinator_id: 'ad',
           design_name: 'Design Publicité - Événementiel',
-          subject: '📢 {{subject}}',
-          html_content: '{{contenu_principal}}',
-          text_content: '{{contenu_principal}}',
+          subject: ' {{subject}} - Ne manquez pas ça !',
+          html_content: `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  ${baseStyles}
+  <style>
+    .header-ad { background: linear-gradient(135deg, #F9A826 0%, #FFB347 100%); }
+    .accent-ad { color: #F9A826; border-bottom: 3px solid #F9A826; }
+    .button-ad { 
+      background: #F9A826;
+      color: white;
+      padding: 14px 40px;
+      border-radius: 8px;
+      text-decoration: none;
+      font-weight: bold;
+      display: inline-block;
+      box-shadow: 0 4px 0 #E08E00;
+    }
+  </style>
+</head>
+<body>
+  <div class="email-wrapper">
+    <!-- HEADER avec image base64 -->
+    <div class="header-ad">
+      ${bannerHtml}
+    </div>
+    
+    <!-- BODY avec texte justifié -->
+    <div class="content-body">
+      <h2 style="color: #F9A826; margin-top: 0; border-bottom: 2px solid #FFF3E0; padding-bottom: 15px;">
+        ${'{{subject}}'.replace(/[{}]/g, '')}
+      </h2>
+      <div style="text-align: justify;">
+        {{contenu_principal}}
+      </div>
+    </div>
+    
+    <!-- FOOTER avec numéros de contact -->
+    ${footerHtml}
+  </div>
+</body>
+</html>`,
+          text_content: "{{subject}}\n\n{{contenu_principal}}\n\nPour la prise de contact avec un service d'opération appeler : +243 834 171 852 / +243 856 163 550",
           variables: '["contenu_principal", "subject"]',
           category: 'advertising'
         },
         {
           destinator_id: 'other',
           design_name: 'Design Standard - Général',
-          subject: '✉️ {{subject}}',
-          html_content: '{{contenu_principal}}',
-          text_content: '{{contenu_principal}}',
+          subject: '{{subject}}',
+          html_content: `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  ${baseStyles}
+  <style>
+    .header-other { background: linear-gradient(135deg, #4A5568 0%, #718096 100%); }
+    .accent-other { color: #4A5568; border-bottom: 3px solid #4A5568; }
+    .button-other { 
+      background: #4A5568;
+      color: white;
+      padding: 12px 30px;
+      border-radius: 6px;
+      text-decoration: none;
+      font-weight: 600;
+      display: inline-block;
+    }
+  </style>
+</head>
+<body>
+  <div class="email-wrapper">
+    <!-- HEADER avec image base64 -->
+    <div class="header-other">
+      ${bannerHtml}
+    </div>
+    
+    <!-- BODY avec texte justifié -->
+    <div class="content-body">
+      <h2 style="color: #4A5568; margin-top: 0; border-bottom: 2px solid #EDF2F7; padding-bottom: 15px;">
+        ${'{{subject}}'.replace(/[{}]/g, '')}
+      </h2>
+      <div style="text-align: justify;">
+        {{contenu_principal}}
+      </div>
+    </div>
+    
+    <!-- FOOTER avec numéros de contact -->
+    ${footerHtml}
+  </div>
+</body>
+</html>`,
+          text_content: "{{subject}}\n\n{{contenu_principal}}\n\nPour la prise de contact avec un service d'opération appeler : +243 834 171 852 / +243 856 163 550",
           variables: '["contenu_principal", "subject"]',
           category: 'general'
         }
@@ -724,15 +723,25 @@ const createDefaultTemplatesAndDesigns = async () => {
       
       for (const design of defaultDesigns) {
         await dbPool.query(
-          `INSERT INTO email_designs (destinator_id, design_name, subject, html_content, text_content, variables, category) 
+          `INSERT INTO email_designs 
+           (destinator_id, design_name, subject, html_content, text_content, variables, category) 
            VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-          [design.destinator_id, design.design_name, design.subject, design.html_content, design.text_content, design.variables, design.category]
+          [
+            design.destinator_id,
+            design.design_name,
+            design.subject,
+            design.html_content,
+            design.text_content,
+            design.variables,
+            design.category
+          ]
         );
       }
-      console.log(`✅ ${defaultDesigns.length} designs par destinataire créés`);
+      
+      console.log(`✅ ${defaultDesigns.length} designs par destinataire créés avec image base64`);
     }
   } catch (error) {
-    console.error("❌ Erreur création templates/designs:", error.message);
+    console.error("❌ Erreur création templates/designs par défaut:", error.message);
   }
 };
 
@@ -846,17 +855,18 @@ const authenticateToken = async (req, res, next) => {
     req.userId = userId;
     next();
   } catch (error) {
-    console.error("❌ Erreur authentification:", error);
+    console.error(" Erreur authentification:", error);
     res.status(500).json({ success: false, error: 'Erreur d\'authentification' });
   }
 };
 
 // ===== ROUTES D'AUTHENTIFICATION =====
+
 app.post("/api/auth/register", async (req, res) => {
   try {
     const { email, password, name } = req.body;
     
-    console.log("📝 Inscription:", { email, name: name || email.split('@')[0] });
+    console.log("Inscription:", { email, name: name || email.split('@')[0] });
     
     if (!email || !password) {
       return res.status(400).json({ success: false, error: "Email et mot de passe requis" });
@@ -900,7 +910,7 @@ app.post("/api/auth/register", async (req, res) => {
     });
     
   } catch (error) {
-    console.error("❌ Erreur inscription:", error);
+    console.error(" Erreur inscription:", error);
     res.status(500).json({ success: false, error: "Erreur serveur lors de l'inscription" });
   }
 });
@@ -942,7 +952,7 @@ app.post("/api/auth/login", async (req, res) => {
     });
     
   } catch (error) {
-    console.error("❌ Erreur connexion:", error);
+    console.error("Erreur connexion:", error);
     res.status(500).json({ success: false, error: "Erreur serveur lors de la connexion" });
   }
 });
@@ -964,7 +974,7 @@ app.get("/api/auth/profile", authenticateToken, async (req, res) => {
     });
     
   } catch (error) {
-    console.error("❌ Erreur récupération profil:", error);
+    console.error("Erreur récupération profil:", error);
     res.status(500).json({ success: false, error: "Erreur serveur" });
   }
 });
@@ -995,17 +1005,18 @@ app.delete("/api/auth/delete", authenticateToken, async (req, res) => {
     });
     
   } catch (error) {
-    console.error("❌ Erreur suppression utilisateur:", error);
+    console.error(" Erreur suppression utilisateur:", error);
     res.status(500).json({ success: false, error: "Erreur serveur lors de la suppression" });
   }
 });
 
-// ===== ROUTE PRINCIPALE D'ENVOI D'EMAIL AVEC DESIGN UNIFIÉ =====
+// ===== ROUTES EMAIL =====
+
 app.post("/api/emails/send", authenticateToken, async (req, res) => {
   const startTime = Date.now();
   const requestId = req.headers['x-request-id'] || Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
   
-  console.log(`\n📧 ENVOI EMAIL [ID:${requestId}]`);
+  console.log(`\n ENVOI EMAIL [ID:${requestId}]`);
   
   try {
     const { to, subject, message, folder = 'sent', destinator_id = 'other' } = req.body;
@@ -1018,7 +1029,7 @@ app.post("/api/emails/send", authenticateToken, async (req, res) => {
       });
     }
     
-    console.log(`📤 Envoi email de user ${user_id} à ${to} [destinataire: ${destinator_id}]`);
+    console.log(`Envoi email de user ${user_id} à ${to} [destinataire: ${destinator_id}]`);
     
     const userResult = await dbPool.query('SELECT email FROM users WHERE id = $1', [user_id]);
     if (userResult.rows.length === 0) {
@@ -1028,17 +1039,92 @@ app.post("/api/emails/send", authenticateToken, async (req, res) => {
     
     console.log("✅ Validation réussie en", Date.now() - startTime, "ms");
     
-    // Générer le HTML avec le design unifié
-    const designHtml = getUnifiedEmailDesign(message, subject, userEmail, destinator_id);
+    let designHtml;
+    let designSubject;
+    let designId = null;
+    
+    try {
+      const designResult = await dbPool.query(
+        `SELECT id, subject, html_content 
+         FROM email_designs 
+         WHERE destinator_id = $1 AND is_active = true`,
+        [destinator_id]
+      );
+      
+      if (designResult.rows.length > 0) {
+        const design = designResult.rows[0];
+        designId = design.id;
+        
+        // Remplacer les variables dans le HTML
+        let html = design.html_content;
+        html = html.replace(/{{contenu_principal}}/g, message || '');
+        html = html.replace(/{{subject}}/g, subject || '');
+        html = html.replace(/{{[^}]+}}/g, '');
+        
+        designHtml = html;
+        designSubject = design.subject
+          .replace(/{{subject}}/g, subject || '')
+          .replace(/{{[^}]+}}/g, '');
+        
+        console.log(`✅ Design trouvé: ${designResult.rows[0].id} pour ${destinator_id} (${designResult.rows[0].design_name})`);
+      } else {
+        console.log(`ℹ️ Aucun design trouvé pour ${destinator_id}, utilisation du design par défaut`);
+      }
+    } catch (designError) {
+      console.log("ℹ️ Erreur récupération design:", designError.message);
+    }
+    
+    if (!designHtml) {
+      // Design par défaut si aucun design trouvé
+      const bannerBase64 = getBannerImageBase64();
+      const bannerHtml = bannerBase64 
+        ? `<img src="${bannerBase64}" alt="Youpi. Banner" style="width: 100%; max-width: 600px; height: auto; display: block;">`
+        : `<div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; text-align: center;">
+            <h1 style="color: white; margin: 0; font-size: 28px;">Youpi.</h1>
+          </div>`;
+      
+      designHtml = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body { font-family: Arial, sans-serif; line-height: 1.6; margin: 0; padding: 20px; background-color: #f5f5f5; }
+    .email-wrapper { max-width: 600px; margin: 0 auto; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 5px 15px rgba(0,0,0,0.1); }
+    .content-body { padding: 30px; text-align: justify; }
+    .footer { background: #1a2634; padding: 30px 20px; text-align: center; color: white; }
+  </style>
+</head>
+<body>
+  <div class="email-wrapper">
+    <div class="header">${bannerHtml}</div>
+    <div class="content-body">
+      <h2 style="color: #4F46E5; margin-top: 0;">${subject}</h2>
+      <div style="text-align: justify;">${message.replace(/\n/g, '<br>')}</div>
+    </div>
+    <div class="footer">
+      <p style="margin: 0 0 15px 0; font-size: 16px;">Pour la prise de contact avec un service d'opération</p>
+      <div style="background: rgba(255,255,255,0.1); padding: 15px 25px; border-radius: 50px; margin-bottom: 20px; display: inline-block;">
+        <p style="margin: 0; font-size: 18px; font-weight: bold;">+243 834 171 852 / +243 856 163 550</p>
+      </div>
+      <p style="color: #9ca3af; font-size: 12px; margin: 0;">© ${new Date().getFullYear()} Youpi. Tous droits réservés.</p>
+    </div>
+  </div>
+</body>
+</html>`;
+      designSubject = subject;
+    }
+    
+    const finalSubject = designSubject || subject;
     
     console.log("⏳ Tentative d'envoi via SendGrid Web API...");
-    console.log(`   Design unifié avec image Base64 pour ${destinator_id}`);
+    console.log(`   Design utilisé: ${designId ? designId : 'Défaut'} pour ${destinator_id}`);
     
     const client = getSendGridClient();
     
     const emailData = {
       to: to,
-      subject: subject,
+      subject: finalSubject,
       text: message,
       html: designHtml,
       replyTo: userEmail,
@@ -1049,7 +1135,7 @@ app.post("/api/emails/send", authenticateToken, async (req, res) => {
     const result = await sendEmailViaAPI(emailData);
     const sendTime = Date.now() - sendStartTime;
     
-    console.log(`✅ EMAIL ENVOYÉ AVEC SUCCÈS en ${sendTime}ms`);
+    console.log(` EMAIL ENVOYÉ AVEC SUCCÈS en ${sendTime}ms`);
     console.log(`   Message ID: ${result.messageId || 'N/A'}`);
     console.log(`   Status Code: ${result.statusCode}`);
     console.log("=".repeat(70) + "\n");
@@ -1057,27 +1143,28 @@ app.post("/api/emails/send", authenticateToken, async (req, res) => {
     const totalTime = Date.now() - startTime;
     
     const emailResult = await dbPool.query(
-      `INSERT INTO emails (user_id, to_email, subject, content, status, sendgrid_message_id, folder, destinator_id) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
+      `INSERT INTO emails (user_id, to_email, subject, content, status, sendgrid_message_id, folder, destinator_id, design_id) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) 
        RETURNING id, created_at`,
-      [user_id, to, subject, message, 'sent', result.messageId, folder, destinator_id]
+      [user_id, to, finalSubject, message, 'sent', result.messageId, folder, destinator_id, designId]
     );
     
     res.json({
       success: true,
       messageId: result.messageId,
       timestamp: new Date().toISOString(),
-      details: `Email envoyé avec succès à "${to}"`,
+      details: `Email envoyé avec succès de "${process.env.SMTP_SENDER}" à "${to}" via SendGrid Web API`,
       from: process.env.SMTP_SENDER,
       replyTo: userEmail,
       to: to,
-      subject: subject,
+      subject: finalSubject,
       processingTime: `${totalTime}ms`,
-      sendMethod: "SendGrid Web API",
+      sendMethod: "SendGrid Web API (HTTPS)",
       requestId: requestId,
       email_id: emailResult.rows[0].id,
       destinator_id: destinator_id,
-      design: "unifié-header-body-footer"
+      design_id: designId,
+      design_used: designId ? 'design_personnalisé' : 'design_par_défaut'
     });
     
   } catch (error) {
@@ -1091,11 +1178,11 @@ app.post("/api/emails/send", authenticateToken, async (req, res) => {
           [req.userId, req.body.to, req.body.subject, req.body.message, 'failed', error.message, 'failed', req.body.destinator_id || 'other']
         );
       } catch (dbError) {
-        console.error("❌ Erreur sauvegarde email échoué:", dbError);
+        console.error("Erreur sauvegarde email échoué:", dbError);
       }
     }
     
-    console.error(`💥 Erreur envoi email [${requestId}]:`, error.message);
+    console.error(` Erreur envoi email [${requestId}]:`, error.message);
     
     res.status(500).json({
       success: false,
@@ -1107,276 +1194,25 @@ app.post("/api/emails/send", authenticateToken, async (req, res) => {
   }
 });
 
-// ===== AUTRES ROUTES EMAIL =====
-app.get("/api/emails", authenticateToken, async (req, res) => {
-  try {
-    const user_id = req.userId;
-    const { page = 1, limit = 50, folder, status, search } = req.query;
-    const offset = (page - 1) * limit;
-    
-    let query = 'SELECT * FROM emails WHERE user_id = $1';
-    const params = [user_id];
-    let paramCount = 2;
-    
-    if (folder && folder !== 'all') {
-      query += ` AND folder = $${paramCount}`;
-      params.push(folder);
-      paramCount++;
-    }
-    
-    if (status) {
-      query += ` AND status = $${paramCount}`;
-      params.push(status);
-      paramCount++;
-    }
-    
-    if (search) {
-      query += ` AND (subject ILIKE $${paramCount} OR content ILIKE $${paramCount} OR to_email ILIKE $${paramCount})`;
-      params.push(`%${search}%`);
-      paramCount++;
-    }
-    
-    const countQuery = query.replace('SELECT *', 'SELECT COUNT(*) as total');
-    const countResult = await dbPool.query(countQuery, params);
-    const total = parseInt(countResult.rows[0].total);
-    
-    query += ' ORDER BY created_at DESC LIMIT $' + paramCount + ' OFFSET $' + (paramCount + 1);
-    params.push(parseInt(limit), offset);
-    
-    const result = await dbPool.query(query, params);
-    
-    res.json({
-      success: true,
-      total: total,
-      page: parseInt(page),
-      limit: parseInt(limit),
-      totalPages: Math.ceil(total / limit),
-      emails: result.rows.map(email => ({
-        id: email.id,
-        to: email.to_email,
-        subject: email.subject,
-        content: email.content,
-        status: email.status,
-        folder: email.folder || 'inbox',
-        destinator_id: email.destinator_id,
-        createdAt: email.created_at,
-        updatedAt: email.updated_at || email.created_at,
-        errorDetail: email.error_detail
-      }))
-    });
-    
-  } catch (error) {
-    console.error("❌ Erreur récupération emails:", error);
-    res.status(500).json({ success: false, error: "Erreur serveur" });
-  }
-});
+// ===== ROUTES DESIGNS PAR DESTINATAIRE =====
 
-app.get("/api/emails/:email_id", authenticateToken, async (req, res) => {
-  try {
-    const { email_id } = req.params;
-    const user_id = req.userId;
-    
-    const result = await dbPool.query(
-      'SELECT * FROM emails WHERE id = $1 AND user_id = $2',
-      [email_id, user_id]
-    );
-    
-    if (result.rows.length === 0) {
-      return res.status(404).json({ success: false, error: "Email non trouvé" });
-    }
-    
-    const email = result.rows[0];
-    
-    res.json({
-      success: true,
-      email: {
-        id: email.id,
-        to: email.to_email,
-        subject: email.subject,
-        content: email.content,
-        status: email.status,
-        folder: email.folder || 'inbox',
-        destinator_id: email.destinator_id,
-        createdAt: email.created_at,
-        updatedAt: email.updated_at || email.created_at,
-        errorDetail: email.error_detail,
-        sendgridMessageId: email.sendgrid_message_id
-      }
-    });
-    
-  } catch (error) {
-    console.error("❌ Erreur récupération email:", error);
-    res.status(500).json({ success: false, error: "Erreur serveur" });
-  }
-});
-
-app.post("/api/emails/draft", authenticateToken, async (req, res) => {
-  try {
-    const { to, subject, content, destinator_id = 'other' } = req.body;
-    const user_id = req.userId;
-    
-    const result = await dbPool.query(
-      `INSERT INTO emails (user_id, to_email, subject, content, status, folder, destinator_id) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7) 
-       RETURNING *`,
-      [user_id, to || '', subject || '', content || '', 'draft', 'drafts', destinator_id]
-    );
-    
-    res.json({
-      success: true,
-      message: "Brouillon créé",
-      email: result.rows[0]
-    });
-    
-  } catch (error) {
-    console.error("❌ Erreur création brouillon:", error);
-    res.status(500).json({ success: false, error: "Erreur serveur" });
-  }
-});
-
-app.put("/api/emails/:email_id", authenticateToken, async (req, res) => {
-  try {
-    const { email_id } = req.params;
-    const user_id = req.userId;
-    const { to, subject, content, folder, status, destinator_id } = req.body;
-    
-    const checkResult = await dbPool.query(
-      'SELECT id FROM emails WHERE id = $1 AND user_id = $2',
-      [email_id, user_id]
-    );
-    
-    if (checkResult.rows.length === 0) {
-      return res.status(404).json({ success: false, error: "Email non trouvé" });
-    }
-    
-    const updates = [];
-    const values = [];
-    let paramCount = 1;
-    
-    if (to !== undefined) {
-      updates.push(`to_email = $${paramCount}`);
-      values.push(to);
-      paramCount++;
-    }
-    if (subject !== undefined) {
-      updates.push(`subject = $${paramCount}`);
-      values.push(subject);
-      paramCount++;
-    }
-    if (content !== undefined) {
-      updates.push(`content = $${paramCount}`);
-      values.push(content);
-      paramCount++;
-    }
-    if (folder !== undefined) {
-      updates.push(`folder = $${paramCount}`);
-      values.push(folder);
-      paramCount++;
-    }
-    if (status !== undefined) {
-      updates.push(`status = $${paramCount}`);
-      values.push(status);
-      paramCount++;
-    }
-    if (destinator_id !== undefined) {
-      updates.push(`destinator_id = $${paramCount}`);
-      values.push(destinator_id);
-      paramCount++;
-    }
-    
-    if (updates.length === 0) {
-      return res.status(400).json({ success: false, error: "Aucune donnée à modifier" });
-    }
-    
-    updates.push(`updated_at = NOW()`);
-    values.push(email_id);
-    
-    const query = `UPDATE emails SET ${updates.join(', ')} WHERE id = $${paramCount} RETURNING *`;
-    const result = await dbPool.query(query, values);
-    
-    res.json({
-      success: true,
-      message: "Email modifié",
-      email: result.rows[0]
-    });
-    
-  } catch (error) {
-    console.error("❌ Erreur modification email:", error);
-    res.status(500).json({ success: false, error: "Erreur serveur" });
-  }
-});
-
-app.delete("/api/emails/:email_id", authenticateToken, async (req, res) => {
-  try {
-    const { email_id } = req.params;
-    const user_id = req.userId;
-    
-    const result = await dbPool.query(
-      'DELETE FROM emails WHERE id = $1 AND user_id = $2 RETURNING id',
-      [email_id, user_id]
-    );
-    
-    if (result.rows.length === 0) {
-      return res.status(404).json({ success: false, error: "Email non trouvé" });
-    }
-    
-    res.json({
-      success: true,
-      message: "Email supprimé",
-      email_id: result.rows[0].id
-    });
-    
-  } catch (error) {
-    console.error("❌ Erreur suppression email:", error);
-    res.status(500).json({ success: false, error: "Erreur serveur" });
-  }
-});
-
-app.patch("/api/emails/:email_id/folder", authenticateToken, async (req, res) => {
-  try {
-    const { email_id } = req.params;
-    const user_id = req.userId;
-    const { folder } = req.body;
-    
-    if (!folder || !['inbox', 'sent', 'drafts', 'pending', 'failed', 'all'].includes(folder)) {
-      return res.status(400).json({ success: false, error: "Dossier invalide" });
-    }
-    
-    const result = await dbPool.query(
-      'UPDATE emails SET folder = $1, updated_at = NOW() WHERE id = $2 AND user_id = $3 RETURNING *',
-      [folder, email_id, user_id]
-    );
-    
-    if (result.rows.length === 0) {
-      return res.status(404).json({ success: false, error: "Email non trouvé" });
-    }
-    
-    res.json({
-      success: true,
-      message: "Dossier mis à jour",
-      email: result.rows[0]
-    });
-    
-  } catch (error) {
-    console.error("❌ Erreur mise à jour dossier:", error);
-    res.status(500).json({ success: false, error: "Erreur serveur" });
-  }
-});
-
-// ===== ROUTES DESIGNS (simplifiées) =====
 app.get("/api/designs/destinator/:destinator_id", authenticateToken, async (req, res) => {
   try {
     const { destinator_id } = req.params;
     
     const result = await dbPool.query(
-      `SELECT id, destinator_id, design_name, subject, category, is_active, created_at
+      `SELECT id, destinator_id, design_name, template_id, subject, 
+              html_content, text_content, variables, category, is_active, created_at, updated_at
        FROM email_designs 
        WHERE destinator_id = $1 AND is_active = true`,
       [destinator_id]
     );
     
     if (result.rows.length === 0) {
-      return res.status(404).json({ success: false, error: "Design non trouvé" });
+      return res.status(404).json({ 
+        success: false, 
+        error: "Design non trouvé pour ce destinataire" 
+      });
     }
     
     res.json({
@@ -1385,37 +1221,275 @@ app.get("/api/designs/destinator/:destinator_id", authenticateToken, async (req,
     });
     
   } catch (error) {
-    console.error("❌ Erreur récupération design:", error);
+    console.error(" Erreur récupération design par destinataire:", error);
+    res.status(500).json({ success: false, error: "Erreur serveur" });
+  }
+});
+
+app.get("/api/designs", authenticateToken, async (req, res) => {
+  try {
+    const { active_only = 'true' } = req.query;
+    
+    let query = `
+      SELECT d.id, d.destinator_id, d.design_name, d.template_id, 
+             d.subject, d.category, d.is_active, d.created_at,
+             t.name as template_name
+      FROM email_designs d
+      LEFT JOIN email_templates t ON d.template_id = t.id
+    `;
+    
+    const params = [];
+    
+    if (active_only === 'true') {
+      query += ` WHERE d.is_active = true`;
+    }
+    
+    query += ` ORDER BY d.destinator_id`;
+    
+    const result = await dbPool.query(query, params);
+    
+    res.json({
+      success: true,
+      count: result.rows.length,
+      designs: result.rows
+    });
+    
+  } catch (error) {
+    console.error("Erreur récupération designs:", error);
+    res.status(500).json({ success: false, error: "Erreur serveur" });
+  }
+});
+
+app.post("/api/designs/generate", authenticateToken, async (req, res) => {
+  try {
+    const { destinator_id, content, variables = {} } = req.body;
+    
+    if (!destinator_id || !content) {
+      return res.status(400).json({ 
+        success: false, 
+        error: "destinator_id et content sont requis" 
+      });
+    }
+    
+    const designResult = await dbPool.query(
+      `SELECT subject, html_content, text_content, variables as available_variables
+       FROM email_designs 
+       WHERE destinator_id = $1 AND is_active = true`,
+      [destinator_id]
+    );
+    
+    if (designResult.rows.length === 0) {
+      return res.status(404).json({ 
+        success: false, 
+        error: "Aucun design trouvé pour ce destinataire" 
+      });
+    }
+    
+    const design = designResult.rows[0];
+    
+    const replaceVariables = (template, vars) => {
+      if (!template) return template;
+      let result = template;
+      
+      if (vars.contenu_principal) {
+        result = result.replace(/{{contenu_principal}}/g, vars.contenu_principal);
+      } else {
+        result = result.replace(/{{contenu_principal}}/g, content);
+      }
+      
+      if (vars.subject) {
+        result = result.replace(/{{subject}}/g, vars.subject);
+      }
+      
+      for (const [key, value] of Object.entries(vars)) {
+        if (key !== 'contenu_principal' && key !== 'subject') {
+          const placeholder = new RegExp(`{{${key}}}`, 'g');
+          result = result.replace(placeholder, value || '');
+        }
+      }
+      
+      result = result.replace(/{{[^}]+}}/g, '');
+      
+      return result;
+    };
+    
+    const allVariables = {
+      ...variables,
+      contenu_principal: content
+    };
+    
+    const generated = {
+      subject: replaceVariables(design.subject, allVariables),
+      html: replaceVariables(design.html_content, allVariables),
+      text: replaceVariables(design.text_content || content, allVariables),
+      destinator_id,
+      variables_used: Object.keys(allVariables)
+    };
+    
+    res.json({
+      success: true,
+      generated
+    });
+    
+  } catch (error) {
+    console.error("Erreur génération email avec design:", error);
+    res.status(500).json({ success: false, error: "Erreur serveur" });
+  }
+});
+
+app.post("/api/designs/destinator/:destinator_id", authenticateToken, async (req, res) => {
+  try {
+    const { destinator_id } = req.params;
+    const { 
+      design_name, 
+      subject, 
+      html_content, 
+      text_content, 
+      variables = [],
+      template_id = null,
+      category = 'destinator'
+    } = req.body;
+    
+    if (!design_name || !subject || !html_content) {
+      return res.status(400).json({ 
+        success: false, 
+        error: "design_name, subject et html_content sont requis" 
+      });
+    }
+    
+    const existingResult = await dbPool.query(
+      'SELECT id FROM email_designs WHERE destinator_id = $1',
+      [destinator_id]
+    );
+    
+    if (existingResult.rows.length > 0) {
+      const result = await dbPool.query(
+        `UPDATE email_designs 
+         SET design_name = $1, template_id = $2, subject = $3, 
+             html_content = $4, text_content = $5, variables = $6, 
+             category = $7, updated_at = NOW()
+         WHERE destinator_id = $8
+         RETURNING *`,
+        [
+          design_name, 
+          template_id, 
+          subject, 
+          html_content, 
+          text_content || '', 
+          JSON.stringify(variables), 
+          category, 
+          destinator_id
+        ]
+      );
+      
+      res.json({
+        success: true,
+        message: "Design mis à jour",
+        design: result.rows[0]
+      });
+    } else {
+      const result = await dbPool.query(
+        `INSERT INTO email_designs 
+         (destinator_id, design_name, template_id, subject, html_content, text_content, variables, category)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         RETURNING *`,
+        [
+          destinator_id,
+          design_name,
+          template_id,
+          subject,
+          html_content,
+          text_content || '',
+          JSON.stringify(variables),
+          category
+        ]
+      );
+      
+      res.status(201).json({
+        success: true,
+        message: "Design créé",
+        design: result.rows[0]
+      });
+    }
+    
+  } catch (error) {
+    console.error("Erreur création/mise à jour design:", error);
+    res.status(500).json({ success: false, error: "Erreur serveur" });
+  }
+});
+
+app.patch("/api/designs/:id/toggle", authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { is_active } = req.body;
+    
+    if (typeof is_active !== 'boolean') {
+      return res.status(400).json({ 
+        success: false, 
+        error: "is_active (boolean) est requis" 
+      });
+    }
+    
+    const result = await dbPool.query(
+      `UPDATE email_designs 
+       SET is_active = $1, updated_at = NOW()
+       WHERE id = $2
+       RETURNING id, destinator_id, design_name, is_active`,
+      [is_active, id]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: "Design non trouvé" });
+    }
+    
+    res.json({
+      success: true,
+      message: `Design ${is_active ? 'activé' : 'désactivé'}`,
+      design: result.rows[0]
+    });
+    
+  } catch (error) {
+    console.error("Erreur activation/désactivation design:", error);
     res.status(500).json({ success: false, error: "Erreur serveur" });
   }
 });
 
 // ===== ROUTES UTILITAIRES =====
+
 app.get("/", (req, res) => {
   res.json({
-    message: "Youpi. API - Design Email Unifié",
+    message: "Youpi. API avec Base de Données",
     status: "online",
     version: "5.0.0",
     timestamp: new Date().toISOString(),
-    features: [
-      "PostgreSQL", 
-      "SendGrid API", 
-      "Authentification", 
-      "Design email unifié",
-      "Header avec image Base64",
-      "Body avec texte justifié",
-      "Footer avec contacts opérations"
-    ],
-    design: {
-      header: "Image bannière Base64 ou titre dégradé",
-      body: "Texte justifié avec styles adaptés au destinataire",
-      footer: "Numéros de téléphone: +243 834 171 852 / +243 856 163 550"
-    },
+    features: ["PostgreSQL", "SendGrid API", "Authentification", "Designs par destinataire", "Image Base64", "Texte justifié"],
     endpoints: {
-      auth: ["POST /api/auth/register", "POST /api/auth/login", "GET /api/auth/profile"],
-      emails: ["POST /api/emails/send", "GET /api/emails", "POST /api/emails/draft"],
+      auth: ["POST /api/auth/register", "POST /api/auth/login", "GET /api/auth/profile", "DELETE /api/auth/delete"],
+      emails: [
+        "GET /api/emails",
+        "GET /api/emails/:id",
+        "POST /api/emails/send",
+        "POST /api/emails/draft",
+        "PUT /api/emails/:id",
+        "PATCH /api/emails/:id/folder",
+        "DELETE /api/emails/:id"
+      ],
+      designs: [
+        "GET /api/designs",
+        "GET /api/designs/destinator/:destinator_id",
+        "POST /api/designs/generate",
+        "POST /api/designs/destinator/:destinator_id",
+        "PATCH /api/designs/:id/toggle"
+      ],
       utils: ["GET /api/health", "GET /api/setup-database"]
-    }
+    },
+    designs_disponibles: {
+      marketing: { couleur: "#FF6B6B", description: "Design promotionnel - Orange/Rouge" },
+      partner: { couleur: "#0F4C81", description: "Design professionnel - Bleu foncé" },
+      ad: { couleur: "#F9A826", description: "Design événementiel - Jaune/Orange" },
+      other: { couleur: "#4A5568", description: "Design standard - Gris" }
+    },
+    documentation: "https://system-mail-youpi-backend.onrender.com"
   });
 });
 
@@ -1423,17 +1497,30 @@ app.get("/api/health", async (req, res) => {
   try {
     let dbStatus = "❌ non connecté";
     let dbTime = null;
+    let tablesInfo = [];
     
     try {
       const dbResult = await dbPool.query('SELECT NOW() as db_time');
       dbStatus = "✅ connecté";
       dbTime = dbResult.rows[0].db_time;
+      
+      const tablesResult = await dbPool.query(`
+        SELECT table_name, 
+               (SELECT COUNT(*) FROM information_schema.columns WHERE table_name = t.table_name) as columns,
+               (SELECT COUNT(*) FROM information_schema.indexes WHERE table_name = t.table_name) as indexes
+        FROM information_schema.tables t
+        WHERE table_schema = 'public'
+        ORDER BY table_name
+      `);
+      tablesInfo = tablesResult.rows;
     } catch (dbError) {
       console.error("Erreur santé DB:", dbError.message);
     }
     
+    const bannerImageExists = fs.existsSync(path.join(__dirname, 'assets', 'banner-youpi.png'));
+    
     const sendgridStatus = process.env.SENDGRID_API_KEY ? "✅ configuré" : "❌ manquant";
-    const imageStatus = getBannerImageBase64() ? "✅ présente" : "❌ non trouvée";
+    const smtpSender = process.env.SMTP_SENDER || "❌ manquant";
     
     res.json({
       status: "OK",
@@ -1442,9 +1529,12 @@ app.get("/api/health", async (req, res) => {
       services: {
         database: dbStatus,
         sendgrid: sendgridStatus,
-        banner_image: imageStatus,
+        smtp_sender: smtpSender,
+        banner_image: bannerImageExists ? "✅ présent" : "⚠️ absent (titre par défaut)",
+        server_time: new Date().toISOString(),
         db_time: dbTime
       },
+      tables: tablesInfo,
       memory: {
         heapUsed: `${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2)} MB`,
         heapTotal: `${(process.memoryUsage().heapTotal / 1024 / 1024).toFixed(2)} MB`,
@@ -1452,7 +1542,11 @@ app.get("/api/health", async (req, res) => {
       }
     });
   } catch (error) {
-    res.status(500).json({ status: "ERROR", error: error.message });
+    res.status(500).json({
+      status: "ERROR",
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
   }
 });
 
@@ -1462,8 +1556,9 @@ app.get("/api/setup-database", async (req, res) => {
     await createDefaultTemplatesAndDesigns();
     res.json({ 
       success: true, 
-      message: "Base de données vérifiée et mise à jour",
-      tables: ["users", "emails", "attachments", "email_templates", "template_versions", "email_designs"]
+      message: "Base de données vérifiée et mise à jour avec succès",
+      tables: ["users", "emails", "attachments", "email_templates", "template_versions", "email_designs"],
+      designs: ["marketing (rouge/orange)", "partner (bleu)", "ad (jaune/orange)", "other (gris)"]
     });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -1474,25 +1569,41 @@ app.use((req, res) => {
   res.status(404).json({
     success: false,
     error: `Route non trouvée: ${req.method} ${req.path}`,
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    availableEndpoints: [
+      "GET /",
+      "GET /api/health",
+      "POST /api/auth/register",
+      "POST /api/auth/login",
+      "GET /api/auth/profile (authentifié)",
+      "DELETE /api/auth/delete (authentifié)",
+      "GET /api/emails (authentifié)",
+      "POST /api/emails/send (authentifié)",
+      "GET /api/designs (authentifié)",
+      "POST /api/designs/generate (authentifié)",
+      "GET /api/setup-database"
+    ]
   });
 });
 
 app.use((err, req, res, next) => {
-  console.error("🔥 Erreur globale:", err);
+  console.error(" Erreur globale:", err);
   res.status(500).json({
     success: false,
     error: "Erreur interne du serveur",
-    message: process.env.NODE_ENV === 'production' ? undefined : err.message
+    message: process.env.NODE_ENV === 'production' ? undefined : err.message,
+    stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
+    timestamp: new Date().toISOString()
   });
 });
 
 // ===== DÉMARRAGE =====
+
 console.log("🔍 Démarrage de l'application...");
-console.log("📦 Variables d'environnement:");
+console.log("📦 Variables d'environnement disponibles:");
 console.log("- PORT:", process.env.PORT);
-console.log("- DATABASE_URL:", process.env.DATABASE_URL ? "Présente" : "Manquante");
-console.log("- SENDGRID_API_KEY:", process.env.SENDGRID_API_KEY ? "Présente" : "Manquante");
+console.log("- DATABASE_URL:", process.env.DATABASE_URL ? "Présente (masquée)" : "Manquante");
+console.log("- SENDGRID_API_KEY:", process.env.SENDGRID_API_KEY ? "Présente (masquée)" : "Manquante");
 console.log("- SMTP_SENDER:", process.env.SMTP_SENDER || "Manquant");
 
 const initializeServices = async () => {
@@ -1508,27 +1619,30 @@ const initializeServices = async () => {
     
     await createTables();
     await createDefaultTemplatesAndDesigns();
-    console.log("🚀 Tous les services sont prêts !");
+    console.log("Tous les services sont prêts !");
   } catch (error) {
-    console.error("💥 Échec initialisation:", error);
+    console.error(" Échec initialisation:", error);
     process.exit(1);
   }
 };
 
 process.on('uncaughtException', (error) => {
-  console.error("💥 ERREUR NON CAPTURÉE:", error);
+  console.error(" ERREUR NON CAPTURÉE:", error);
+  console.error("Stack:", error.stack);
   process.exit(1);
 });
 
-process.on('unhandledRejection', (reason) => {
-  console.error("💥 PROMESSE NON GÉRÉE:", reason);
+process.on('unhandledRejection', (reason, promise) => {
+  console.error("PROMESSE NON GÉRÉE:", reason);
   process.exit(1);
 });
 
 const startServer = async () => {
   try {
+    console.log("🔄 Initialisation des services...");
     await initializeServices();
     
+    console.log("🚀 Démarrage du serveur HTTP...");
     const server = app.listen(PORT, HOST, () => {
       console.log("\n" + "=".repeat(70));
       console.log("🚀 YOUPI. API - DÉMARRÉE AVEC SUCCÈS");
@@ -1537,17 +1651,31 @@ const startServer = async () => {
       console.log(`🔧 Port: ${PORT}`);
       console.log(`📊 Env: ${process.env.NODE_ENV || 'development'}`);
       console.log(`⏰ Démarrage: ${new Date().toISOString()}`);
-      console.log(`🎨 Design: UNIFIÉ avec image Base64`);
-      console.log(`📱 Contacts: +243 834 171 852 / +243 856 163 550`);
+      console.log(`🎨 Designs disponibles:`);
+      console.log(`   • Marketing: #FF6B6B (Orange/Rouge)`);
+      console.log(`   • Partenaire: #0F4C81 (Bleu foncé)`);
+      console.log(`   • Publicité: #F9A826 (Jaune/Orange)`);
+      console.log(`   • Autre: #4A5568 (Gris)`);
+      console.log(`🖼️  Image base64: ${getBannerImageBase64() ? '✅ Chargée' : '⚠️ Non trouvée (titre par défaut)'}`);
       console.log("=".repeat(70));
     });
     
+    server.on('error', (error) => {
+      console.error("💥 Erreur du serveur HTTP:", error);
+      if (error.code === 'EADDRINUSE') {
+        console.error(`❌ Le port ${PORT} est déjà utilisé`);
+      }
+    });
+    
     const shutdown = (signal) => {
-      console.log(`\n🛑 Signal ${signal} reçu - Arrêt...`);
+      console.log(`\n🛑 Signal ${signal} reçu - Arrêt du serveur...`);
       server.close(() => {
         console.log('✅ Serveur arrêté');
         if (dbPool) {
-          dbPool.end(() => process.exit(0));
+          dbPool.end(() => {
+            console.log('✅ Pool de connexions PostgreSQL fermé');
+            process.exit(0);
+          });
         } else {
           process.exit(0);
         }
@@ -1558,7 +1686,9 @@ const startServer = async () => {
     process.on('SIGINT', () => shutdown('SIGINT'));
     
   } catch (error) {
-    console.error("💥 IMPOSSIBLE DE DÉMARRER:", error);
+    console.error("💥 IMPOSSIBLE DE DÉMARRER LE SERVEUR:");
+    console.error("Erreur:", error.message);
+    console.error("Stack:", error.stack);
     process.exit(1);
   }
 };
