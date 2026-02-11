@@ -98,7 +98,6 @@ const testDatabaseConnection = async () => {
 // ===== CRÉATION/MISE À JOUR DES TABLES =====
 const createTables = async () => {
   try {
-    // Vérifier si les tables existent déjà
     const tablesExist = await dbPool.query(`
       SELECT EXISTS (
         SELECT FROM information_schema.tables 
@@ -107,11 +106,9 @@ const createTables = async () => {
     `);
     
     if (!tablesExist.rows[0].exists) {
-      // Créer les tables si elles n'existent pas
       await createNewTables();
       console.log("✅ Tables créées avec succès");
     } else {
-      // Mettre à jour les tables existantes
       await updateExistingTables();
       console.log("✅ Tables mises à jour avec succès");
     }
@@ -143,6 +140,8 @@ const createNewTables = async () => {
       error_detail TEXT,
       sendgrid_message_id VARCHAR(255),
       folder VARCHAR(50) DEFAULT 'inbox',
+      destinator_id VARCHAR(50),
+      design_id INTEGER,
       created_at TIMESTAMP DEFAULT NOW(),
       updated_at TIMESTAMP DEFAULT NOW()
     );
@@ -156,7 +155,7 @@ const createNewTables = async () => {
       created_at TIMESTAMP DEFAULT NOW()
     );
 
-    -- TABLE TEMPLATES EMAIL (NOUVEAU)
+    -- Table templates email
     CREATE TABLE email_templates (
       id SERIAL PRIMARY KEY,
       name VARCHAR(100) UNIQUE NOT NULL,
@@ -172,7 +171,7 @@ const createNewTables = async () => {
       updated_at TIMESTAMP DEFAULT NOW()
     );
 
-    -- TABLE DES VERSIONS DES TEMPLATES (audit)
+    -- Table des versions des templates
     CREATE TABLE template_versions (
       id SERIAL PRIMARY KEY,
       template_id INTEGER REFERENCES email_templates(id) ON DELETE CASCADE,
@@ -184,20 +183,37 @@ const createNewTables = async () => {
       created_at TIMESTAMP DEFAULT NOW()
     );
 
+    -- TABLE DES DESIGNS PAR DESTINATAIRE
+    CREATE TABLE email_designs (
+      id SERIAL PRIMARY KEY,
+      destinator_id VARCHAR(50) UNIQUE NOT NULL,
+      design_name VARCHAR(100) NOT NULL,
+      template_id INTEGER REFERENCES email_templates(id) ON DELETE SET NULL,
+      subject TEXT NOT NULL,
+      html_content TEXT NOT NULL,
+      text_content TEXT,
+      variables JSONB DEFAULT '[]'::jsonb,
+      category VARCHAR(50) DEFAULT 'destinator',
+      is_active BOOLEAN DEFAULT true,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    );
+
     -- Créer des index
     CREATE INDEX idx_emails_user_id ON emails(user_id);
     CREATE INDEX idx_emails_folder ON emails(folder);
     CREATE INDEX idx_emails_created_at ON emails(created_at DESC);
+    CREATE INDEX idx_emails_destinator_id ON emails(destinator_id);
     CREATE INDEX idx_templates_category ON email_templates(category);
     CREATE INDEX idx_templates_active ON email_templates(is_active);
     CREATE INDEX idx_template_versions_template_id ON template_versions(template_id);
+    CREATE INDEX idx_email_designs_destinator_id ON email_designs(destinator_id);
   `;
   
   await dbPool.query(createTablesSQL);
 };
 
 const updateExistingTables = async () => {
-  // Vérifier et ajouter les colonnes manquantes à la table emails
   const checkColumns = await dbPool.query(`
     SELECT column_name 
     FROM information_schema.columns 
@@ -206,19 +222,26 @@ const updateExistingTables = async () => {
   
   const existingColumns = checkColumns.rows.map(row => row.column_name);
   
-  // Ajouter la colonne folder si elle n'existe pas
   if (!existingColumns.includes('folder')) {
     console.log("📋 Ajout de la colonne 'folder' à la table emails...");
     await dbPool.query('ALTER TABLE emails ADD COLUMN folder VARCHAR(50) DEFAULT \'inbox\'');
   }
   
-  // Ajouter la colonne updated_at si elle n'existe pas
   if (!existingColumns.includes('updated_at')) {
     console.log("📋 Ajout de la colonne 'updated_at' à la table emails...");
     await dbPool.query('ALTER TABLE emails ADD COLUMN updated_at TIMESTAMP DEFAULT NOW()');
   }
   
-  // Vérifier et créer la table email_templates si elle n'existe pas
+  if (!existingColumns.includes('destinator_id')) {
+    console.log("📋 Ajout de la colonne 'destinator_id' à la table emails...");
+    await dbPool.query('ALTER TABLE emails ADD COLUMN destinator_id VARCHAR(50)');
+  }
+  
+  if (!existingColumns.includes('design_id')) {
+    console.log("📋 Ajout de la colonne 'design_id' à la table emails...");
+    await dbPool.query('ALTER TABLE emails ADD COLUMN design_id INTEGER');
+  }
+  
   const checkTemplateTable = await dbPool.query(`
     SELECT EXISTS (
       SELECT FROM information_schema.tables 
@@ -246,7 +269,6 @@ const updateExistingTables = async () => {
     `);
   }
   
-  // Vérifier et créer la table template_versions si elle n'existe pas
   const checkVersionTable = await dbPool.query(`
     SELECT EXISTS (
       SELECT FROM information_schema.tables 
@@ -270,7 +292,35 @@ const updateExistingTables = async () => {
     `);
   }
   
-  // Créer les index s'ils n'existent pas
+  const checkDesignsTable = await dbPool.query(`
+    SELECT EXISTS (
+      SELECT FROM information_schema.tables 
+      WHERE table_name = 'email_designs'
+    )
+  `);
+  
+  if (!checkDesignsTable.rows[0].exists) {
+    console.log("📋 Création de la table 'email_designs'...");
+    await dbPool.query(`
+      CREATE TABLE email_designs (
+        id SERIAL PRIMARY KEY,
+        destinator_id VARCHAR(50) UNIQUE NOT NULL,
+        design_name VARCHAR(100) NOT NULL,
+        template_id INTEGER REFERENCES email_templates(id) ON DELETE SET NULL,
+        subject TEXT NOT NULL,
+        html_content TEXT NOT NULL,
+        text_content TEXT,
+        variables JSONB DEFAULT '[]'::jsonb,
+        category VARCHAR(50) DEFAULT 'destinator',
+        is_active BOOLEAN DEFAULT true,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+      
+      CREATE INDEX idx_email_designs_destinator_id ON email_designs(destinator_id);
+    `);
+  }
+  
   const checkIndexes = await dbPool.query(`
     SELECT indexname 
     FROM pg_indexes 
@@ -291,30 +341,16 @@ const updateExistingTables = async () => {
     await dbPool.query('CREATE INDEX IF NOT EXISTS idx_emails_created_at ON emails(created_at DESC)');
   }
   
-  // Créer les index pour les templates s'ils n'existent pas
-  const checkTemplateIndexes = await dbPool.query(`
-    SELECT indexname 
-    FROM pg_indexes 
-    WHERE tablename = 'email_templates'
-  `);
-  
-  const existingTemplateIndexes = checkTemplateIndexes.rows.map(row => row.indexname);
-  
-  if (!existingTemplateIndexes.some(idx => idx.includes('idx_templates_category'))) {
-    await dbPool.query('CREATE INDEX IF NOT EXISTS idx_templates_category ON email_templates(category)');
-  }
-  
-  if (!existingTemplateIndexes.some(idx => idx.includes('idx_templates_active'))) {
-    await dbPool.query('CREATE INDEX IF NOT EXISTS idx_templates_active ON email_templates(is_active)');
+  if (!existingIndexes.some(idx => idx.includes('idx_emails_destinator_id'))) {
+    await dbPool.query('CREATE INDEX IF NOT EXISTS idx_emails_destinator_id ON emails(destinator_id)');
   }
   
   console.log("✅ Structure de base de données vérifiée et mise à jour");
 };
 
-// ===== CRÉATION DES TEMPLATES PAR DÉFAUT =====
-const createDefaultTemplates = async () => {
+// ===== CRÉATION DES TEMPLATES ET DESIGNS PAR DÉFAUT =====
+const createDefaultTemplatesAndDesigns = async () => {
   try {
-    // Vérifier si des templates système existent déjà
     const existingTemplates = await dbPool.query(
       'SELECT COUNT(*) FROM email_templates WHERE is_system = true'
     );
@@ -448,8 +484,233 @@ const createDefaultTemplates = async () => {
       
       console.log(`✅ ${defaultTemplates.length} templates système créés`);
     }
+
+    // === CRÉATION DES DESIGNS PAR DESTINATAIRE ===
+    const existingDesigns = await dbPool.query(
+      'SELECT COUNT(*) FROM email_designs'
+    );
+    
+    if (parseInt(existingDesigns.rows[0].count) === 0) {
+      console.log("📋 Création des designs par destinataire...");
+      
+      const templatesResult = await dbPool.query(
+        `SELECT id, name FROM email_templates WHERE is_system = true`
+      );
+      
+      const templateMap = {};
+      templatesResult.rows.forEach(t => {
+        if (t.name === 'newsletter') templateMap.newsletter = t.id;
+        if (t.name === 'meeting_confirmation') templateMap.meeting = t.id;
+      });
+
+      const defaultDesigns = [
+        {
+          destinator_id: 'marketing',
+          design_name: 'Design Marketing - Promotionnel',
+          subject: '✨ {{offer_title}} - Offre spéciale Youpi.',
+          html_content: `<div style="font-family: 'Arial', sans-serif; max-width: 600px; margin: 0 auto;">
+            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 40px 20px; text-align: center;">
+              <h1 style="color: white; margin: 0; font-size: 32px;">{{offer_title}}</h1>
+              <p style="color: rgba(255,255,255,0.9); font-size: 18px; margin-top: 10px;">{{offer_subtitle}}</p>
+            </div>
+            
+            <div style="padding: 40px 30px; background: white;">
+              <div style="font-size: 16px; line-height: 1.8; color: #333;">
+                {{contenu_principal}}
+              </div>
+              
+              <div style="background: #f8f9fa; border-radius: 10px; padding: 25px; margin: 30px 0; text-align: center;">
+                <p style="font-size: 24px; font-weight: bold; color: #667eea;">{{offer_price}}</p>
+                <a href="{{cta_link}}" style="display: inline-block; background: #667eea; color: white; padding: 15px 40px; text-decoration: none; border-radius: 25px; font-weight: bold; margin-top: 10px;">
+                  {{cta_text}}
+                </a>
+              </div>
+              
+              <p style="color: #666; font-size: 14px; text-align: center;">
+                Offre valable jusqu'au {{valid_until}}
+              </p>
+            </div>
+            
+            <div style="background: #f8f9fa; padding: 30px; text-align: center; border-top: 1px solid #eaeaea;">
+              <p style="color: #999; font-size: 12px;">
+                {{company_name}} · {{company_address}}<br>
+                <a href="{{unsubscribe_link}}" style="color: #667eea; text-decoration: none;">Se désabonner</a>
+              </p>
+            </div>
+          </div>`,
+          text_content: "{{offer_title}}\n\n{{contenu_principal}}\n\nPrix: {{offer_price}}\n{{cta_text}}: {{cta_link}}",
+          variables: '["contenu_principal", "offer_title", "offer_subtitle", "offer_price", "cta_link", "cta_text", "valid_until", "company_name", "company_address", "unsubscribe_link"]',
+          category: 'marketing'
+        },
+        {
+          destinator_id: 'partner',
+          design_name: 'Design Partenaire - Professionnel',
+          subject: '🤝 {{subject}} - Partenariat Youpi.',
+          html_content: `<div style="font-family: 'Georgia', serif; max-width: 600px; margin: 0 auto; background: white;">
+            <div style="border-bottom: 3px solid #10b981; padding: 30px 30px 20px;">
+              <h1 style="color: #10b981; margin: 0; font-size: 24px;">{{company_name}}</h1>
+            </div>
+            
+            <div style="padding: 40px 30px; background: white;">
+              <p style="font-size: 16px; color: #4a5568; margin-bottom: 20px;">Bonjour {{contact_name}},</p>
+              
+              <div style="font-size: 16px; line-height: 1.8; color: #2d3748;">
+                {{contenu_principal}}
+              </div>
+              
+              <div style="border-left: 4px solid #10b981; background: #f0fdf4; padding: 20px; margin: 30px 0;">
+                <p style="margin: 0; font-weight: bold; color: #10b981;">📌 Prochaine étape</p>
+                <p style="margin: 10px 0 0 0;">{{next_step}}</p>
+              </div>
+              
+              <p style="color: #718096; font-size: 14px; margin-top: 30px;">
+                Cordialement,<br>
+                <strong>{{sender_name}}</strong><br>
+                {{sender_position}}<br>
+                <span style="color: #10b981;">{{sender_phone}} | {{sender_email}}</span>
+              </p>
+            </div>
+            
+            <div style="background: #f8fafc; padding: 30px; border-top: 1px solid #e2e8f0;">
+              <p style="color: #64748b; font-size: 12px; text-align: center;">
+                {{company_name}} · {{company_address}}<br>
+                N° de TVA: {{vat_number}} · {{company_email}}
+              </p>
+            </div>
+          </div>`,
+          text_content: "Bonjour {{contact_name}},\n\n{{contenu_principal}}\n\nProchaine étape: {{next_step}}\n\nCordialement,\n{{sender_name}}\n{{sender_position}}\n{{sender_phone}}\n{{sender_email}}",
+          variables: '["contenu_principal", "company_name", "contact_name", "next_step", "sender_name", "sender_position", "sender_phone", "sender_email", "vat_number", "company_address", "company_email", "subject"]',
+          category: 'professional'
+        },
+        {
+          destinator_id: 'ad',
+          design_name: 'Design Publicité - Événementiel',
+          subject: '📢 {{event_title}} - Ne manquez pas ça !',
+          html_content: `<div style="font-family: 'Helvetica', sans-serif; max-width: 600px; margin: 0 auto;">
+            <div style="background: #f59e0b; padding: 20px; text-align: center;">
+              <span style="background: white; color: #f59e0b; padding: 8px 20px; border-radius: 20px; font-weight: bold; font-size: 14px;">
+                {{badge_text}}
+              </span>
+            </div>
+            
+            <div style="background: linear-gradient(135deg, #f59e0b 0%, #fbbf24 100%); padding: 40px 20px; text-align: center;">
+              <h1 style="color: white; margin: 0; font-size: 36px; text-shadow: 2px 2px 4px rgba(0,0,0,0.1);">
+                {{event_title}}
+              </h1>
+              <p style="color: white; font-size: 20px; margin-top: 10px; opacity: 0.95;">
+                {{event_subtitle}}
+              </p>
+            </div>
+            
+            <div style="padding: 40px 30px; background: white;">
+              <div style="background: #fff7ed; border-radius: 10px; padding: 30px; margin-bottom: 30px;">
+                <div style="display: flex; justify-content: space-around; text-align: center;">
+                  <div>
+                    <p style="color: #f59e0b; font-size: 14px; margin-bottom: 5px;">📅 DATE</p>
+                    <p style="font-weight: bold; margin: 0;">{{event_date}}</p>
+                  </div>
+                  <div>
+                    <p style="color: #f59e0b; font-size: 14px; margin-bottom: 5px;">⏰ HEURE</p>
+                    <p style="font-weight: bold; margin: 0;">{{event_time}}</p>
+                  </div>
+                  <div>
+                    <p style="color: #f59e0b; font-size: 14px; margin-bottom: 5px;">📍 LIEU</p>
+                    <p style="font-weight: bold; margin: 0;">{{event_location}}</p>
+                  </div>
+                </div>
+              </div>
+              
+              <div style="font-size: 16px; line-height: 1.8; color: #333;">
+                {{contenu_principal}}
+              </div>
+              
+              <div style="text-align: center; margin-top: 40px;">
+                <a href="{{registration_link}}" style="display: inline-block; background: #f59e0b; color: white; padding: 15px 45px; text-decoration: none; border-radius: 30px; font-weight: bold; font-size: 18px;">
+                  {{cta_text}}
+                </a>
+                <p style="color: #999; font-size: 12px; margin-top: 15px;">
+                  {{spots_left}} places restantes
+                </p>
+              </div>
+            </div>
+            
+            <div style="background: #1f2937; padding: 30px; text-align: center;">
+              <p style="color: white; margin: 0; font-size: 14px;">
+                {{organizer_name}}<br>
+                <span style="color: #f59e0b;">{{contact_phone}} · {{contact_email}}</span>
+              </p>
+            </div>
+          </div>`,
+          text_content: "{{event_title}} - {{event_subtitle}}\n\nDate: {{event_date}} à {{event_time}}\nLieu: {{event_location}}\n\n{{contenu_principal}}\n\nInscription: {{registration_link}}",
+          variables: '["contenu_principal", "event_title", "event_subtitle", "badge_text", "event_date", "event_time", "event_location", "registration_link", "cta_text", "spots_left", "organizer_name", "contact_phone", "contact_email"]',
+          category: 'advertising'
+        },
+        {
+          destinator_id: 'other',
+          design_name: 'Design Standard - Général',
+          subject: '✉️ {{subject}}',
+          html_content: `<div style="font-family: 'Arial', sans-serif; max-width: 600px; margin: 0 auto; background: white;">
+            <div style="padding: 30px; border-bottom: 2px solid #6b7280;">
+              <h1 style="color: #6b7280; margin: 0; font-size: 20px; font-weight: normal;">
+                {{header_text}}
+              </h1>
+            </div>
+            
+            <div style="padding: 40px 30px;">
+              <div style="font-size: 16px; line-height: 1.8; color: #374151;">
+                {{contenu_principal}}
+              </div>
+              
+              <div style="background: #f9fafb; border-radius: 8px; padding: 20px; margin-top: 30px;">
+                <p style="margin: 0; color: #4b5563; font-size: 14px;">
+                  <strong>Informations complémentaires:</strong><br>
+                  {{additional_info}}
+                </p>
+              </div>
+            </div>
+            
+            <div style="background: #f3f4f6; padding: 20px 30px; text-align: center;">
+              <p style="color: #6b7280; font-size: 12px; margin: 0;">
+                {{footer_text}}<br>
+                <span style="color: #9ca3af;">{{timestamp}}</span>
+              </p>
+            </div>
+          </div>`,
+          text_content: "{{subject}}\n\n{{contenu_principal}}\n\n{{additional_info}}\n\n{{footer_text}}",
+          variables: '["contenu_principal", "subject", "header_text", "additional_info", "footer_text", "timestamp"]',
+          category: 'general'
+        }
+      ];
+      
+      for (const design of defaultDesigns) {
+        let template_id = null;
+        if (design.destinator_id === 'marketing' && templateMap.newsletter) {
+          template_id = templateMap.newsletter;
+        } else if (design.destinator_id === 'partner' && templateMap.meeting) {
+          template_id = templateMap.meeting;
+        }
+        
+        await dbPool.query(
+          `INSERT INTO email_designs 
+           (destinator_id, design_name, template_id, subject, html_content, text_content, variables, category) 
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [
+            design.destinator_id,
+            design.design_name,
+            template_id,
+            design.subject,
+            design.html_content,
+            design.text_content,
+            design.variables,
+            design.category
+          ]
+        );
+      }
+      
+      console.log(`✅ ${defaultDesigns.length} designs par destinataire créés`);
+    }
   } catch (error) {
-    console.error("❌ Erreur création templates par défaut:", error.message);
+    console.error("❌ Erreur création templates/designs par défaut:", error.message);
   }
 };
 
@@ -496,7 +757,6 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use('/assets', express.static(path.join(__dirname, 'assets')));
 
-// Middleware de logging amélioré
 app.use((req, res, next) => {
   const start = Date.now();
   const requestId = Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
@@ -529,14 +789,13 @@ app.use((req, res, next) => {
   next();
 });
 
-// ===== MIDDLEWARE D'AUTHENTIFICATION SIMPLIFIÉ =====
+// ===== MIDDLEWARE D'AUTHENTIFICATION =====
 const authenticateToken = async (req, res, next) => {
   try {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
     
     if (!token) {
-      // Pour les routes GET publiques, continuer sans auth
       if (req.method === 'GET' && (
         req.path === '/' || 
         req.path.startsWith('/api/health') ||
@@ -547,7 +806,6 @@ const authenticateToken = async (req, res, next) => {
       return res.status(401).json({ success: false, error: 'Token manquant' });
     }
     
-    // Token simple: user_1_123456789
     const parts = token.split('_');
     if (parts.length !== 3 || parts[0] !== 'user') {
       return res.status(401).json({ success: false, error: 'Token invalide' });
@@ -558,7 +816,6 @@ const authenticateToken = async (req, res, next) => {
       return res.status(401).json({ success: false, error: 'Token invalide' });
     }
     
-    // Vérifier que l'utilisateur existe
     const userResult = await dbPool.query('SELECT id FROM users WHERE id = $1', [userId]);
     if (userResult.rows.length === 0) {
       return res.status(401).json({ success: false, error: 'Utilisateur non trouvé' });
@@ -574,14 +831,12 @@ const authenticateToken = async (req, res, next) => {
 
 // ===== ROUTES D'AUTHENTIFICATION =====
 
-// 1. Inscription
 app.post("/api/auth/register", async (req, res) => {
   try {
     const { email, password, name } = req.body;
     
     console.log("📝 Inscription:", { email, name: name || email.split('@')[0] });
     
-    // Validation
     if (!email || !password) {
       return res.status(400).json({ success: false, error: "Email et mot de passe requis" });
     }
@@ -595,25 +850,20 @@ app.post("/api/auth/register", async (req, res) => {
       return res.status(400).json({ success: false, error: "Mot de passe trop court (min 6 caractères)" });
     }
     
-    // Vérifier si l'utilisateur existe déjà
     const existingUser = await dbPool.query('SELECT id FROM users WHERE email = $1', [email]);
     if (existingUser.rows.length > 0) {
       return res.status(409).json({ success: false, error: "Un compte existe déjà avec cet email" });
     }
     
-    // Hacher le mot de passe
     const saltRounds = 10;
     const password_hash = await bcrypt.hash(password, saltRounds);
     
-    // Sauvegarder l'utilisateur
     const result = await dbPool.query(
       'INSERT INTO users (email, password_hash, name) VALUES ($1, $2, $3) RETURNING id, email, name, created_at',
       [email, password_hash, name || email.split('@')[0]]
     );
     
     const user = result.rows[0];
-    
-    // Générer un token simple
     const token = `user_${user.id}_${Date.now()}`;
     
     res.json({
@@ -634,7 +884,6 @@ app.post("/api/auth/register", async (req, res) => {
   }
 });
 
-// 2. Connexion
 app.post("/api/auth/login", async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -645,7 +894,6 @@ app.post("/api/auth/login", async (req, res) => {
       return res.status(400).json({ success: false, error: "Email et mot de passe requis" });
     }
     
-    // Chercher l'utilisateur
     const result = await dbPool.query('SELECT * FROM users WHERE email = $1', [email]);
     if (result.rows.length === 0) {
       return res.status(401).json({ success: false, error: "Email ou mot de passe incorrect" });
@@ -653,13 +901,11 @@ app.post("/api/auth/login", async (req, res) => {
     
     const user = result.rows[0];
     
-    // Vérifier le mot de passe
     const passwordMatch = await bcrypt.compare(password, user.password_hash);
     if (!passwordMatch) {
       return res.status(401).json({ success: false, error: "Email ou mot de passe incorrect" });
     }
     
-    // Générer le token
     const token = `user_${user.id}_${Date.now()}`;
     
     res.json({
@@ -680,7 +926,6 @@ app.post("/api/auth/login", async (req, res) => {
   }
 });
 
-// 3. Obtenir le profil utilisateur
 app.get("/api/auth/profile", authenticateToken, async (req, res) => {
   try {
     const result = await dbPool.query(
@@ -703,7 +948,6 @@ app.get("/api/auth/profile", authenticateToken, async (req, res) => {
   }
 });
 
-// 4. Supprimer un utilisateur
 app.delete("/api/auth/delete", authenticateToken, async (req, res) => {
   try {
     const { password } = req.body;
@@ -712,7 +956,6 @@ app.delete("/api/auth/delete", authenticateToken, async (req, res) => {
       return res.status(400).json({ success: false, error: "Mot de passe requis pour suppression" });
     }
     
-    // Vérifier le mot de passe
     const userResult = await dbPool.query('SELECT password_hash FROM users WHERE id = $1', [req.userId]);
     if (userResult.rows.length === 0) {
       return res.status(404).json({ success: false, error: "Utilisateur non trouvé" });
@@ -723,7 +966,6 @@ app.delete("/api/auth/delete", authenticateToken, async (req, res) => {
       return res.status(401).json({ success: false, error: "Mot de passe incorrect" });
     }
     
-    // Supprimer l'utilisateur
     await dbPool.query('DELETE FROM users WHERE id = $1', [req.userId]);
     
     res.json({
@@ -739,7 +981,6 @@ app.delete("/api/auth/delete", authenticateToken, async (req, res) => {
 
 // ===== ROUTES EMAIL =====
 
-// 1. Envoyer un email (protégé)
 app.post("/api/emails/send", authenticateToken, async (req, res) => {
   const startTime = Date.now();
   const requestId = req.headers['x-request-id'] || Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
@@ -747,10 +988,9 @@ app.post("/api/emails/send", authenticateToken, async (req, res) => {
   console.log(`\n📧 ENVOI EMAIL [ID:${requestId}]`);
   
   try {
-    const { to, subject, message, folder = 'sent' } = req.body;
+    const { to, subject, message, folder = 'sent', destinator_id = 'other' } = req.body;
     const user_id = req.userId;
     
-    // Validation
     if (!to || !subject || !message) {
       return res.status(400).json({
         success: false,
@@ -758,232 +998,100 @@ app.post("/api/emails/send", authenticateToken, async (req, res) => {
       });
     }
     
-    console.log(`📤 Envoi email de user ${user_id} à ${to}`);
+    console.log(`📤 Envoi email de user ${user_id} à ${to} [destinataire: ${destinator_id}]`);
     
-    // Récupérer l'email de l'utilisateur
     const userResult = await dbPool.query('SELECT email FROM users WHERE id = $1', [user_id]);
     if (userResult.rows.length === 0) {
       return res.status(404).json({ success: false, error: "Utilisateur non trouvé" });
     }
     const userEmail = userResult.rows[0].email;
     
-    // Validation réussie
     console.log("✅ Validation réussie en", Date.now() - startTime, "ms");
     
-    // VÉRIFICATION CRITIQUE DU CLIENT SENDGRID
-    console.log("🔄 Récupération client SendGrid API...");
-    let client;
+    let designHtml;
+    let designSubject;
+    let designId = null;
+    
     try {
-      client = getSendGridClient();
-      console.log("✅ Client SendGrid API récupéré");
-    } catch (clientError) {
-      console.error("❌ ERREUR CLIENT SENDGRID:", clientError.message);
-      throw new Error(`Configuration SendGrid invalide: ${clientError.message}`);
-    }
-    
-    const senderEmail = process.env.SMTP_SENDER;
-    console.log(`📤 Préparation email via API Web: ${senderEmail} → ${to}`);
-    console.log(`   Reply-To: ${userEmail}`);
-    
-    // Fonction pour obtenir l'image en base64 (simulation - à adapter selon vos besoins)
-    const getBannerImageBase64 = () => {
-      // Ici vous pouvez charger une image depuis le système de fichiers
-      // ou utiliser une image codée en dur
-      try {
-        // Exemple: image de bannière par défaut
-        return null; // Retourne null pour utiliser le titre par défaut
-      } catch (error) {
-        console.error("❌ Erreur chargement image:", error);
-        return null;
+      const designResult = await dbPool.query(
+        `SELECT id, subject, html_content 
+         FROM email_designs 
+         WHERE destinator_id = $1 AND is_active = true`,
+        [destinator_id]
+      );
+      
+      if (designResult.rows.length > 0) {
+        const design = designResult.rows[0];
+        designId = design.id;
+        
+        let html = design.html_content;
+        html = html.replace(/{{contenu_principal}}/g, message || '');
+        html = html.replace(/{{subject}}/g, subject || '');
+        html = html.replace(/{{sender_email}}/g, userEmail);
+        html = html.replace(/{{current_year}}/g, new Date().getFullYear().toString());
+        
+        html = html.replace(/{{[^}]+}}/g, '');
+        
+        designHtml = html;
+        designSubject = design.subject
+          .replace(/{{subject}}/g, subject || '')
+          .replace(/{{[^}]+}}/g, '');
+        
+        console.log(`✅ Design trouvé: ${designResult.rows[0].id} pour ${destinator_id}`);
+      } else {
+        console.log(`ℹ️ Aucun design trouvé pour ${destinator_id}, utilisation du design par défaut`);
       }
-    };
-    
-    // OBTENIR L'IMAGE EN BASE64
-    console.log("🖼️  Chargement de l'image en Base64...");
-    const base64Image = getBannerImageBase64();
-    
-    if (base64Image) {
-      console.log(`✅ Image chargée avec succès (${Math.round(base64Image.length / 1024)} KB)`);
-    } else {
-      console.log("ℹ️  Aucune image disponible, utilisation du titre par défaut");
+    } catch (designError) {
+      console.log("ℹ️ Erreur récupération design:", designError.message);
     }
     
-    // Génération du HTML selon le destinataire
-    let htmlContent = `
-    <!DOCTYPE html>
-    <html lang="fr">
-    <head>
+    if (!designHtml) {
+      designHtml = `
+      <!DOCTYPE html>
+      <html>
+      <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>${subject}</title>
         <style>
-            body {
-                font-family: 'Arial', sans-serif;
-                margin: 0;
-                padding: 0;
-                background-color: #f5f5f5;
-                line-height: 1.6;
-            }
-            .email-container {
-                max-width: 600px;
-                margin: 0 auto;
-                background-color: #ffffff;
-                border-radius: 10px;
-                overflow: hidden;
-                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-            }
-            .header {
-                background-color: #007AFF;
-                ${base64Image ? 'padding: 0;' : 'padding: 20px;'}
-                text-align: center;
-            }
-            .banner {
-                width: 100%;
-                max-height: 200px;
-                object-fit: cover;
-                border-radius: 0;
-                display: block;
-            }
-            .header-title {
-                color: white;
-                font-size: 24px;
-                margin: 0;
-                padding: 20px;
-            }
-            .content {
-                padding: 30px;
-                color: #333333;
-            }
-            .subject {
-                color: #007AFF;
-                font-size: 24px;
-                margin-top: 0;
-                margin-bottom: 20px;
-                font-weight: bold;
-            }
-            .message {
-                color: #555555;
-                font-size: 16px;
-                line-height: 1.8;
-                white-space: pre-line;
-            }
-            .divider {
-                height: 1px;
-                background-color: #eeeeee;
-                margin: 30px 0;
-            }
-            .sender-info {
-                background-color: #f9f9f9;
-                padding: 20px;
-                border-radius: 8px;
-                border-left: 4px solid #007AFF;
-                margin-top: 30px;
-            }
-            .footer {
-                background-color: #2c3e50;
-                color: #ffffff;
-                padding: 25px;
-                text-align: center;
-            }
-            .contact-info {
-                margin-bottom: 15px;
-                font-size: 14px;
-            }
-            .phone-numbers {
-                font-weight: bold;
-                color: #007AFF;
-                margin: 10px 0;
-                line-height: 1.8;
-            }
-            .copyright {
-                font-size: 12px;
-                color: #95a5a6;
-                margin-top: 15px;
-                border-top: 1px solid #34495e;
-                padding-top: 15px;
-            }
-            .youpi-badge {
-                display: inline-block;
-                background-color: #007AFF;
-                color: white;
-                padding: 5px 15px;
-                border-radius: 20px;
-                font-size: 12px;
-                margin-top: 10px;
-            }
-            @media (max-width: 600px) {
-                .content {
-                    padding: 20px;
-                }
-                .subject {
-                    font-size: 20px;
-                }
-                .message {
-                    font-size: 14px;
-                }
-                .phone-numbers {
-                    font-size: 14px;
-                }
-            }
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; }
+          .content { padding: 30px; background: white; }
+          .footer { background: #f8f9fa; padding: 20px; text-align: center; color: #666; font-size: 12px; }
         </style>
-    </head>
-    <body>
-        <div class="email-container">
-            <!-- HEADER AVEC BANNIÈRE EN BASE64 -->
-            <div class="header">
-                ${base64Image ? 
-                  `<img src="${base64Image}" 
-                        alt="Bannière Youpi." 
-                        class="banner">` : 
-                  `<h1 class="header-title">Youpi.</h1>`}
-            </div>
-            
-            <!-- CONTENU PRINCIPAL -->
-            <div class="content">
-                <h1 class="subject">${subject}</h1>
-                
-                <div class="message">
-                    ${message.replace(/\n/g, '<br>')}
-                </div>
-                
-                <div class="divider"></div>
-                
-                <!-- INFO EXPÉDITEUR -->
-                <div class="sender-info">
-                    <p><strong>Expéditeur :</strong> ${userEmail}</p>
-                    <div class="youpi-badge">Envoyé via Youpi.</div>
-                </div>
-            </div>
-            
-            <!-- FOOTER AVEC COORDONNÉES -->
-            <div class="footer">
-                <div class="contact-info">
-                    <p>Besoin d'aide ? Contactez-nous :</p>
-                    <div class="phone-numbers">
-                        +243 856 163 550<br>
-                        +243 834 171 852
-                    </div>
-                </div>
-                
-                <div class="copyright">
-                    © ${new Date().getFullYear()} Youpi Mail. Tous droits réservés.<br>
-                    <small>Service d'envoi d'emails professionnels</small>
-                </div>
-            </div>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>Youpi.</h1>
+          </div>
+          <div class="content">
+            <h2>${subject}</h2>
+            <div>${message.replace(/\n/g, '<br>')}</div>
+            <hr style="margin: 30px 0;">
+            <p><strong>De:</strong> ${userEmail}</p>
+          </div>
+          <div class="footer">
+            <p>© ${new Date().getFullYear()} Youpi. Tous droits réservés.</p>
+          </div>
         </div>
-    </body>
-    </html>`;
-
-    // ENVOI VIA SENDGRID WEB API
+      </body>
+      </html>`;
+      designSubject = subject;
+    }
+    
+    const finalSubject = designSubject || subject;
+    
     console.log("⏳ Tentative d'envoi via SendGrid Web API...");
-    console.log("   Méthode: HTTPS (port 443)");
-    console.log(`   Image: ${base64Image ? 'Intégrée (Base64)' : 'Titre par défaut'}`);
+    console.log(`   Design utilisé: ${designId ? designId : 'Défaut'} pour ${destinator_id}`);
+    
+    const client = getSendGridClient();
     
     const emailData = {
       to: to,
-      subject: subject,
+      subject: finalSubject,
       text: message,
-      html: htmlContent,
+      html: designHtml,
       replyTo: userEmail,
       senderName: 'Youpi.'
     };
@@ -999,41 +1107,39 @@ app.post("/api/emails/send", authenticateToken, async (req, res) => {
     
     const totalTime = Date.now() - startTime;
     
-    // Sauvegarder dans la base de données
     const emailResult = await dbPool.query(
-      `INSERT INTO emails (user_id, to_email, subject, content, status, sendgrid_message_id, folder) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7) 
+      `INSERT INTO emails (user_id, to_email, subject, content, status, sendgrid_message_id, folder, destinator_id, design_id) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) 
        RETURNING id, created_at`,
-      [user_id, to, subject, message, 'sent', result.messageId, folder]
+      [user_id, to, finalSubject, message, 'sent', result.messageId, folder, destinator_id, designId]
     );
     
-    // Réponse au client
     res.json({
       success: true,
       messageId: result.messageId,
       timestamp: new Date().toISOString(),
-      details: `Email envoyé avec succès de "${senderEmail}" à "${to}" via SendGrid Web API`,
-      from: senderEmail,
+      details: `Email envoyé avec succès de "${process.env.SMTP_SENDER}" à "${to}" via SendGrid Web API`,
+      from: process.env.SMTP_SENDER,
       replyTo: userEmail,
       to: to,
-      subject: subject,
+      subject: finalSubject,
       processingTime: `${totalTime}ms`,
       sendMethod: "SendGrid Web API (HTTPS)",
-      imageMethod: base64Image ? "Base64 (Intégrée)" : "Titre par défaut",
       requestId: requestId,
-      email_id: emailResult.rows[0].id
+      email_id: emailResult.rows[0].id,
+      destinator_id: destinator_id,
+      design_id: designId
     });
     
   } catch (error) {
     const totalTime = Date.now() - startTime;
     
-    // En cas d'erreur SendGrid, sauvegarder quand même avec statut 'failed'
     if (req.userId) {
       try {
         await dbPool.query(
-          `INSERT INTO emails (user_id, to_email, subject, content, status, error_detail, folder) 
-           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-          [req.userId, req.body.to, req.body.subject, req.body.message, 'failed', error.message, 'failed']
+          `INSERT INTO emails (user_id, to_email, subject, content, status, error_detail, folder, destinator_id) 
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [req.userId, req.body.to, req.body.subject, req.body.message, 'failed', error.message, 'failed', req.body.destinator_id || 'other']
         );
       } catch (dbError) {
         console.error("❌ Erreur sauvegarde email échoué:", dbError);
@@ -1052,7 +1158,6 @@ app.post("/api/emails/send", authenticateToken, async (req, res) => {
   }
 });
 
-// 2. Récupérer les emails d'un utilisateur (protégé)
 app.get("/api/emails", authenticateToken, async (req, res) => {
   try {
     const user_id = req.userId;
@@ -1063,33 +1168,28 @@ app.get("/api/emails", authenticateToken, async (req, res) => {
     const params = [user_id];
     let paramCount = 2;
     
-    // Filtrage par dossier
     if (folder && folder !== 'all') {
       query += ` AND folder = $${paramCount}`;
       params.push(folder);
       paramCount++;
     }
     
-    // Filtrage par statut
     if (status) {
       query += ` AND status = $${paramCount}`;
       params.push(status);
       paramCount++;
     }
     
-    // Recherche
     if (search) {
       query += ` AND (subject ILIKE $${paramCount} OR content ILIKE $${paramCount} OR to_email ILIKE $${paramCount})`;
       params.push(`%${search}%`);
       paramCount++;
     }
     
-    // Compter le total
     const countQuery = query.replace('SELECT *', 'SELECT COUNT(*) as total');
     const countResult = await dbPool.query(countQuery, params);
     const total = parseInt(countResult.rows[0].total);
     
-    // Récupérer les données avec pagination
     query += ' ORDER BY created_at DESC LIMIT $' + paramCount + ' OFFSET $' + (paramCount + 1);
     params.push(parseInt(limit), offset);
     
@@ -1107,7 +1207,9 @@ app.get("/api/emails", authenticateToken, async (req, res) => {
         subject: email.subject,
         content: email.content,
         status: email.status,
-        folder: email.folder || 'inbox', // Valeur par défaut
+        folder: email.folder || 'inbox',
+        destinator_id: email.destinator_id,
+        design_id: email.design_id,
         createdAt: email.created_at,
         updatedAt: email.updated_at || email.created_at,
         errorDetail: email.error_detail
@@ -1120,7 +1222,6 @@ app.get("/api/emails", authenticateToken, async (req, res) => {
   }
 });
 
-// 3. Récupérer un email spécifique (protégé)
 app.get("/api/emails/:email_id", authenticateToken, async (req, res) => {
   try {
     const { email_id } = req.params;
@@ -1146,6 +1247,8 @@ app.get("/api/emails/:email_id", authenticateToken, async (req, res) => {
         content: email.content,
         status: email.status,
         folder: email.folder || 'inbox',
+        destinator_id: email.destinator_id,
+        design_id: email.design_id,
         createdAt: email.created_at,
         updatedAt: email.updated_at || email.created_at,
         errorDetail: email.error_detail,
@@ -1159,17 +1262,16 @@ app.get("/api/emails/:email_id", authenticateToken, async (req, res) => {
   }
 });
 
-// 4. Créer un brouillon (protégé)
 app.post("/api/emails/draft", authenticateToken, async (req, res) => {
   try {
-    const { to, subject, content } = req.body;
+    const { to, subject, content, destinator_id = 'other' } = req.body;
     const user_id = req.userId;
     
     const result = await dbPool.query(
-      `INSERT INTO emails (user_id, to_email, subject, content, status, folder) 
-       VALUES ($1, $2, $3, $4, $5, $6) 
+      `INSERT INTO emails (user_id, to_email, subject, content, status, folder, destinator_id) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7) 
        RETURNING *`,
-      [user_id, to || '', subject || '', content || '', 'draft', 'drafts']
+      [user_id, to || '', subject || '', content || '', 'draft', 'drafts', destinator_id]
     );
     
     res.json({
@@ -1184,14 +1286,12 @@ app.post("/api/emails/draft", authenticateToken, async (req, res) => {
   }
 });
 
-// 5. Modifier un email (protégé)
 app.put("/api/emails/:email_id", authenticateToken, async (req, res) => {
   try {
     const { email_id } = req.params;
     const user_id = req.userId;
-    const { to, subject, content, folder, status } = req.body;
+    const { to, subject, content, folder, status, destinator_id } = req.body;
     
-    // Vérifier que l'email appartient à l'utilisateur
     const checkResult = await dbPool.query(
       'SELECT id FROM emails WHERE id = $1 AND user_id = $2',
       [email_id, user_id]
@@ -1235,6 +1335,12 @@ app.put("/api/emails/:email_id", authenticateToken, async (req, res) => {
       paramCount++;
     }
     
+    if (destinator_id !== undefined) {
+      updates.push(`destinator_id = $${paramCount}`);
+      values.push(destinator_id);
+      paramCount++;
+    }
+    
     if (updates.length === 0) {
       return res.status(400).json({ success: false, error: "Aucune donnée à modifier" });
     }
@@ -1258,7 +1364,6 @@ app.put("/api/emails/:email_id", authenticateToken, async (req, res) => {
   }
 });
 
-// 6. Supprimer un email (protégé)
 app.delete("/api/emails/:email_id", authenticateToken, async (req, res) => {
   try {
     const { email_id } = req.params;
@@ -1285,7 +1390,6 @@ app.delete("/api/emails/:email_id", authenticateToken, async (req, res) => {
   }
 });
 
-// 7. Mettre à jour le dossier d'un email (protégé)
 app.patch("/api/emails/:email_id/folder", authenticateToken, async (req, res) => {
   try {
     const { email_id } = req.params;
@@ -1319,7 +1423,6 @@ app.patch("/api/emails/:email_id/folder", authenticateToken, async (req, res) =>
 
 // ===== ROUTES TEMPLATES EMAIL =====
 
-// 1. Lister tous les templates (protégé)
 app.get("/api/templates", authenticateToken, async (req, res) => {
   try {
     const { category, active_only = 'true', include_system = 'true' } = req.query;
@@ -1335,19 +1438,16 @@ app.get("/api/templates", authenticateToken, async (req, res) => {
     const params = [];
     let paramCount = 1;
     
-    // Filtrer par catégorie
     if (category) {
       query += ` AND category = $${paramCount}`;
       params.push(category);
       paramCount++;
     }
     
-    // Filtrer par actif seulement
     if (active_only === 'true') {
       query += ` AND is_active = true`;
     }
     
-    // Inclure/exclure les templates système
     if (include_system === 'false') {
       query += ` AND is_system = false`;
     }
@@ -1368,7 +1468,6 @@ app.get("/api/templates", authenticateToken, async (req, res) => {
   }
 });
 
-// 2. Récupérer un template spécifique (protégé)
 app.get("/api/templates/:id", authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
@@ -1386,7 +1485,6 @@ app.get("/api/templates/:id", authenticateToken, async (req, res) => {
       return res.status(404).json({ success: false, error: "Template non trouvé" });
     }
     
-    // Récupérer les versions
     const versionsResult = await dbPool.query(
       `SELECT version, subject, created_at 
        FROM template_versions 
@@ -1407,13 +1505,11 @@ app.get("/api/templates/:id", authenticateToken, async (req, res) => {
   }
 });
 
-// 3. Générer un template avec variables (protégé)
 app.post("/api/templates/:id/generate", authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
     const { variables = {} } = req.body;
     
-    // Récupérer le template
     const templateResult = await dbPool.query(
       `SELECT subject, html_content, text_content, variables as available_variables
        FROM email_templates 
@@ -1427,7 +1523,6 @@ app.post("/api/templates/:id/generate", authenticateToken, async (req, res) => {
     
     const template = templateResult.rows[0];
     
-    // Fonction de remplacement des variables
     const replaceVariables = (content, vars) => {
       if (!content) return content;
       let result = content;
@@ -1438,7 +1533,6 @@ app.post("/api/templates/:id/generate", authenticateToken, async (req, res) => {
       return result;
     };
     
-    // Générer le contenu avec variables remplacées
     const generated = {
       subject: replaceVariables(template.subject, variables),
       html_content: replaceVariables(template.html_content, variables),
@@ -1458,7 +1552,6 @@ app.post("/api/templates/:id/generate", authenticateToken, async (req, res) => {
   }
 });
 
-// 4. Créer un nouveau template (protégé)
 app.post("/api/templates", authenticateToken, async (req, res) => {
   try {
     const { 
@@ -1478,7 +1571,6 @@ app.post("/api/templates", authenticateToken, async (req, res) => {
       });
     }
     
-    // Vérifier si le nom existe déjà
     const existingResult = await dbPool.query(
       'SELECT id FROM email_templates WHERE name = $1',
       [name]
@@ -1491,7 +1583,6 @@ app.post("/api/templates", authenticateToken, async (req, res) => {
       });
     }
     
-    // Créer le template
     const result = await dbPool.query(
       `INSERT INTO email_templates 
        (name, category, subject, html_content, text_content, variables, is_active, created_by)
@@ -1500,7 +1591,6 @@ app.post("/api/templates", authenticateToken, async (req, res) => {
       [name, category, subject, html_content, text_content, JSON.stringify(variables), is_active, req.userId]
     );
     
-    // Créer la première version
     await dbPool.query(
       `INSERT INTO template_versions 
        (template_id, version, subject, html_content, variables, created_by)
@@ -1520,7 +1610,6 @@ app.post("/api/templates", authenticateToken, async (req, res) => {
   }
 });
 
-// 5. Mettre à jour un template (protégé)
 app.put("/api/templates/:id", authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
@@ -1534,7 +1623,6 @@ app.put("/api/templates/:id", authenticateToken, async (req, res) => {
       is_active 
     } = req.body;
     
-    // Récupérer le template actuel
     const currentResult = await dbPool.query(
       'SELECT version FROM template_versions WHERE template_id = $1 ORDER BY version DESC LIMIT 1',
       [id]
@@ -1543,7 +1631,6 @@ app.put("/api/templates/:id", authenticateToken, async (req, res) => {
     const currentVersion = currentResult.rows.length > 0 ? currentResult.rows[0].version : 0;
     const newVersion = currentVersion + 1;
     
-    // Mettre à jour le template
     const updates = [];
     const values = [];
     let paramCount = 1;
@@ -1608,7 +1695,6 @@ app.put("/api/templates/:id", authenticateToken, async (req, res) => {
       return res.status(404).json({ success: false, error: "Template non trouvé" });
     }
     
-    // Créer une nouvelle version si le contenu a changé
     if (subject !== undefined || html_content !== undefined) {
       const template = result.rows[0];
       await dbPool.query(
@@ -1632,12 +1718,10 @@ app.put("/api/templates/:id", authenticateToken, async (req, res) => {
   }
 });
 
-// 6. Supprimer un template (protégé - seulement si non système)
 app.delete("/api/templates/:id", authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
     
-    // Vérifier que le template n'est pas système
     const checkResult = await dbPool.query(
       'SELECT is_system FROM email_templates WHERE id = $1',
       [id]
@@ -1671,7 +1755,6 @@ app.delete("/api/templates/:id", authenticateToken, async (req, res) => {
   }
 });
 
-// 7. Récupérer les catégories de templates (protégé)
 app.get("/api/templates/categories", authenticateToken, async (req, res) => {
   try {
     const result = await dbPool.query(`
@@ -1693,7 +1776,6 @@ app.get("/api/templates/categories", authenticateToken, async (req, res) => {
   }
 });
 
-// 8. Récupérer un template par son nom (protégé)
 app.get("/api/templates/name/:name", authenticateToken, async (req, res) => {
   try {
     const { name } = req.params;
@@ -1722,7 +1804,6 @@ app.get("/api/templates/name/:name", authenticateToken, async (req, res) => {
   }
 });
 
-// 9. Dupliquer un template (protégé)
 app.post("/api/templates/:id/duplicate", authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
@@ -1735,7 +1816,6 @@ app.post("/api/templates/:id/duplicate", authenticateToken, async (req, res) => 
       });
     }
     
-    // Vérifier si le nouveau nom existe déjà
     const existingResult = await dbPool.query(
       'SELECT id FROM email_templates WHERE name = $1',
       [new_name]
@@ -1748,7 +1828,6 @@ app.post("/api/templates/:id/duplicate", authenticateToken, async (req, res) => 
       });
     }
     
-    // Récupérer le template source
     const sourceResult = await dbPool.query(
       'SELECT * FROM email_templates WHERE id = $1',
       [id]
@@ -1760,7 +1839,6 @@ app.post("/api/templates/:id/duplicate", authenticateToken, async (req, res) => 
     
     const source = sourceResult.rows[0];
     
-    // Dupliquer le template
     const result = await dbPool.query(
       `INSERT INTO email_templates 
        (name, category, subject, html_content, text_content, variables, is_active, created_by)
@@ -1791,16 +1869,271 @@ app.post("/api/templates/:id/duplicate", authenticateToken, async (req, res) => 
   }
 });
 
+// ===== ROUTES DESIGNS PAR DESTINATAIRE =====
+
+app.get("/api/designs/destinator/:destinator_id", authenticateToken, async (req, res) => {
+  try {
+    const { destinator_id } = req.params;
+    
+    const result = await dbPool.query(
+      `SELECT id, destinator_id, design_name, template_id, subject, 
+              html_content, text_content, variables, category, is_active, created_at, updated_at
+       FROM email_designs 
+       WHERE destinator_id = $1 AND is_active = true`,
+      [destinator_id]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ 
+        success: false, 
+        error: "Design non trouvé pour ce destinataire" 
+      });
+    }
+    
+    res.json({
+      success: true,
+      design: result.rows[0]
+    });
+    
+  } catch (error) {
+    console.error("❌ Erreur récupération design par destinataire:", error);
+    res.status(500).json({ success: false, error: "Erreur serveur" });
+  }
+});
+
+app.get("/api/designs", authenticateToken, async (req, res) => {
+  try {
+    const { active_only = 'true' } = req.query;
+    
+    let query = `
+      SELECT d.id, d.destinator_id, d.design_name, d.template_id, 
+             d.subject, d.category, d.is_active, d.created_at,
+             t.name as template_name
+      FROM email_designs d
+      LEFT JOIN email_templates t ON d.template_id = t.id
+    `;
+    
+    const params = [];
+    
+    if (active_only === 'true') {
+      query += ` WHERE d.is_active = true`;
+    }
+    
+    query += ` ORDER BY d.destinator_id`;
+    
+    const result = await dbPool.query(query, params);
+    
+    res.json({
+      success: true,
+      count: result.rows.length,
+      designs: result.rows
+    });
+    
+  } catch (error) {
+    console.error("❌ Erreur récupération designs:", error);
+    res.status(500).json({ success: false, error: "Erreur serveur" });
+  }
+});
+
+app.post("/api/designs/generate", authenticateToken, async (req, res) => {
+  try {
+    const { destinator_id, content, variables = {} } = req.body;
+    
+    if (!destinator_id || !content) {
+      return res.status(400).json({ 
+        success: false, 
+        error: "destinator_id et content sont requis" 
+      });
+    }
+    
+    const designResult = await dbPool.query(
+      `SELECT subject, html_content, text_content, variables as available_variables
+       FROM email_designs 
+       WHERE destinator_id = $1 AND is_active = true`,
+      [destinator_id]
+    );
+    
+    if (designResult.rows.length === 0) {
+      return res.status(404).json({ 
+        success: false, 
+        error: "Aucun design trouvé pour ce destinataire" 
+      });
+    }
+    
+    const design = designResult.rows[0];
+    
+    const replaceVariables = (template, vars) => {
+      if (!template) return template;
+      let result = template;
+      
+      if (vars.contenu_principal) {
+        result = result.replace(/{{contenu_principal}}/g, vars.contenu_principal);
+      } else {
+        result = result.replace(/{{contenu_principal}}/g, content);
+      }
+      
+      for (const [key, value] of Object.entries(vars)) {
+        if (key !== 'contenu_principal') {
+          const placeholder = new RegExp(`{{${key}}}`, 'g');
+          result = result.replace(placeholder, value || '');
+        }
+      }
+      
+      result = result.replace(/{{[^}]+}}/g, '');
+      
+      return result;
+    };
+    
+    const allVariables = {
+      ...variables,
+      contenu_principal: content
+    };
+    
+    const generated = {
+      subject: replaceVariables(design.subject, allVariables),
+      html: replaceVariables(design.html_content, allVariables),
+      text: replaceVariables(design.text_content || content, allVariables),
+      destinator_id,
+      variables_used: Object.keys(allVariables)
+    };
+    
+    res.json({
+      success: true,
+      generated
+    });
+    
+  } catch (error) {
+    console.error("❌ Erreur génération email avec design:", error);
+    res.status(500).json({ success: false, error: "Erreur serveur" });
+  }
+});
+
+app.post("/api/designs/destinator/:destinator_id", authenticateToken, async (req, res) => {
+  try {
+    const { destinator_id } = req.params;
+    const { 
+      design_name, 
+      subject, 
+      html_content, 
+      text_content, 
+      variables = [],
+      template_id = null,
+      category = 'destinator'
+    } = req.body;
+    
+    if (!design_name || !subject || !html_content) {
+      return res.status(400).json({ 
+        success: false, 
+        error: "design_name, subject et html_content sont requis" 
+      });
+    }
+    
+    const existingResult = await dbPool.query(
+      'SELECT id FROM email_designs WHERE destinator_id = $1',
+      [destinator_id]
+    );
+    
+    if (existingResult.rows.length > 0) {
+      const result = await dbPool.query(
+        `UPDATE email_designs 
+         SET design_name = $1, template_id = $2, subject = $3, 
+             html_content = $4, text_content = $5, variables = $6, 
+             category = $7, updated_at = NOW()
+         WHERE destinator_id = $8
+         RETURNING *`,
+        [
+          design_name, 
+          template_id, 
+          subject, 
+          html_content, 
+          text_content || '', 
+          JSON.stringify(variables), 
+          category, 
+          destinator_id
+        ]
+      );
+      
+      res.json({
+        success: true,
+        message: "Design mis à jour",
+        design: result.rows[0]
+      });
+    } else {
+      const result = await dbPool.query(
+        `INSERT INTO email_designs 
+         (destinator_id, design_name, template_id, subject, html_content, text_content, variables, category)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         RETURNING *`,
+        [
+          destinator_id,
+          design_name,
+          template_id,
+          subject,
+          html_content,
+          text_content || '',
+          JSON.stringify(variables),
+          category
+        ]
+      );
+      
+      res.status(201).json({
+        success: true,
+        message: "Design créé",
+        design: result.rows[0]
+      });
+    }
+    
+  } catch (error) {
+    console.error("❌ Erreur création/mise à jour design:", error);
+    res.status(500).json({ success: false, error: "Erreur serveur" });
+  }
+});
+
+app.patch("/api/designs/:id/toggle", authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { is_active } = req.body;
+    
+    if (typeof is_active !== 'boolean') {
+      return res.status(400).json({ 
+        success: false, 
+        error: "is_active (boolean) est requis" 
+      });
+    }
+    
+    const result = await dbPool.query(
+      `UPDATE email_designs 
+       SET is_active = $1, updated_at = NOW()
+       WHERE id = $2
+       RETURNING id, destinator_id, design_name, is_active`,
+      [is_active, id]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: "Design non trouvé" });
+    }
+    
+    res.json({
+      success: true,
+      message: `Design ${is_active ? 'activé' : 'désactivé'}`,
+      design: result.rows[0]
+    });
+    
+  } catch (error) {
+    console.error("❌ Erreur activation/désactivation design:", error);
+    res.status(500).json({ success: false, error: "Erreur serveur" });
+  }
+});
+
 // ===== ROUTES UTILITAIRES =====
 
-// Route racine (publique)
 app.get("/", (req, res) => {
   res.json({
     message: "Youpi. API avec Base de Données",
     status: "online",
-    version: "3.3.0",
+    version: "4.0.0",
     timestamp: new Date().toISOString(),
-    features: ["PostgreSQL", "SendGrid API", "Authentification", "Gestion emails", "Dossiers", "Templates"],
+    features: ["PostgreSQL", "SendGrid API", "Authentification", "Gestion emails", "Dossiers", "Templates", "Designs par destinataire"],
     endpoints: {
       auth: ["POST /api/auth/register", "POST /api/auth/login", "GET /api/auth/profile", "DELETE /api/auth/delete"],
       emails: [
@@ -1823,16 +2156,21 @@ app.get("/", (req, res) => {
         "PUT /api/templates/:id",
         "DELETE /api/templates/:id"
       ],
+      designs: [
+        "GET /api/designs",
+        "GET /api/designs/destinator/:destinator_id",
+        "POST /api/designs/generate",
+        "POST /api/designs/destinator/:destinator_id",
+        "PATCH /api/designs/:id/toggle"
+      ],
       utils: ["GET /api/health", "GET /api/setup-database"]
     },
     documentation: "https://system-mail-youpi-backend.onrender.com"
   });
 });
 
-// Route santé (publique)
 app.get("/api/health", async (req, res) => {
   try {
-    // Tester la base de données
     let dbStatus = "❌ non connecté";
     let dbTime = null;
     let tablesInfo = [];
@@ -1842,7 +2180,6 @@ app.get("/api/health", async (req, res) => {
       dbStatus = "✅ connecté";
       dbTime = dbResult.rows[0].db_time;
       
-      // Vérifier les tables
       const tablesResult = await dbPool.query(`
         SELECT table_name, 
                (SELECT COUNT(*) FROM information_schema.columns WHERE table_name = t.table_name) as columns,
@@ -1856,7 +2193,6 @@ app.get("/api/health", async (req, res) => {
       console.error("Erreur santé DB:", dbError.message);
     }
     
-    // Vérifier SendGrid
     const sendgridStatus = process.env.SENDGRID_API_KEY ? "✅ configuré" : "❌ manquant";
     const smtpSender = process.env.SMTP_SENDER || "❌ manquant";
     
@@ -1887,22 +2223,20 @@ app.get("/api/health", async (req, res) => {
   }
 });
 
-// Route pour créer les tables (publique - à protéger en production)
 app.get("/api/setup-database", async (req, res) => {
   try {
     await createTables();
-    await createDefaultTemplates();
+    await createDefaultTemplatesAndDesigns();
     res.json({ 
       success: true, 
       message: "Base de données vérifiée et mise à jour avec succès",
-      tables: ["users", "emails", "attachments", "email_templates", "template_versions"]
+      tables: ["users", "emails", "attachments", "email_templates", "template_versions", "email_designs"]
     });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
-// Route 404
 app.use((req, res) => {
   res.status(404).json({
     success: false,
@@ -1919,12 +2253,13 @@ app.use((req, res) => {
       "POST /api/emails/send (authentifié)",
       "GET /api/templates (authentifié)",
       "POST /api/templates (authentifié)",
+      "GET /api/designs (authentifié)",
+      "POST /api/designs/generate (authentifié)",
       "GET /api/setup-database"
     ]
   });
 });
 
-// Gestion erreurs globales
 app.use((err, req, res, next) => {
   console.error("🔥 Erreur globale:", err);
   res.status(500).json({
@@ -1938,7 +2273,6 @@ app.use((err, req, res, next) => {
 
 // ===== DÉMARRAGE =====
 
-// Variables d'environnement disponibles
 console.log("🔍 Démarrage de l'application...");
 console.log("📦 Variables d'environnement disponibles:");
 console.log("- PORT:", process.env.PORT);
@@ -1949,17 +2283,16 @@ console.log("- SMTP_SENDER:", process.env.SMTP_SENDER || "Manquant");
 const initializeServices = async () => {
   try {
     console.log("🔄 Initialisation des services...");
-    initializeDatabase();      // 1. Base de données
-    getSendGridClient();       // 2. SendGrid
+    initializeDatabase();
+    getSendGridClient();
     
-    // Tester la connexion à la base de données
     const dbConnected = await testDatabaseConnection();
     if (!dbConnected) {
       throw new Error("Impossible de se connecter à la base de données");
     }
     
-    await createTables();      // 3. Créer/Mettre à jour les tables
-    await createDefaultTemplates(); // 4. Créer templates par défaut
+    await createTables();
+    await createDefaultTemplatesAndDesigns();
     console.log("🚀 Tous les services sont prêts !");
   } catch (error) {
     console.error("💥 Échec initialisation:", error);
@@ -1967,7 +2300,6 @@ const initializeServices = async () => {
   }
 };
 
-// Ajoutez un gestionnaire pour les erreurs non capturées
 process.on('uncaughtException', (error) => {
   console.error("💥 ERREUR NON CAPTURÉE:", error);
   console.error("Stack:", error.stack);
@@ -1993,10 +2325,10 @@ const startServer = async () => {
       console.log(`🔧 Port: ${PORT}`);
       console.log(`📊 Env: ${process.env.NODE_ENV || 'development'}`);
       console.log(`⏰ Démarrage: ${new Date().toISOString()}`);
+      console.log(`🎨 Designs disponibles: marketing, partner, ad, other`);
       console.log("=".repeat(70));
     });
     
-    // Gestion des erreurs du serveur
     server.on('error', (error) => {
       console.error("💥 Erreur du serveur HTTP:", error);
       if (error.code === 'EADDRINUSE') {
@@ -2004,7 +2336,6 @@ const startServer = async () => {
       }
     });
     
-    // Gestion arrêt propre
     const shutdown = (signal) => {
       console.log(`\n🛑 Signal ${signal} reçu - Arrêt du serveur...`);
       server.close(() => {
