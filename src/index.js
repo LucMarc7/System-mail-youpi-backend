@@ -32,7 +32,7 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage: storage,
   limits: {
-    fileSize: 25 * 1024 * 1024, // 25MB max
+    fileSize: 25 * 1024 * 1024,
   },
   fileFilter: (req, file, cb) => {
     cb(null, true);
@@ -43,11 +43,11 @@ const upload = multer({
 let dbPool;
 const initializeDatabase = () => {
   console.log("=".repeat(60));
-  console.log("🗄️ INITIALISATION BASE DE DONNÉES POSTGRESQL");
+  console.log("INITIALISATION BASE DE DONNÉES POSTGRESQL");
   console.log("=".repeat(60));
   
   if (!process.env.DATABASE_URL) {
-    console.error('❌ ERREUR: DATABASE_URL non définie sur Render');
+    console.error('ERREUR: DATABASE_URL non définie sur Render');
     throw new Error("Configuration base de données manquante");
   }
   
@@ -62,11 +62,11 @@ const initializeDatabase = () => {
       connectionTimeoutMillis: 2000
     });
     
-    console.log('✅ Pool PostgreSQL créé');
+    console.log('Pool PostgreSQL créé');
     console.log("=".repeat(60));
     return dbPool;
   } catch (dbError) {
-    console.error("💥 ERREUR FATALE PostgreSQL:", dbError.message);
+    console.error("ERREUR FATALE PostgreSQL:", dbError.message);
     throw dbError;
   }
 };
@@ -80,14 +80,14 @@ const getBannerImageBase64 = () => {
       const imageBuffer = fs.readFileSync(imagePath);
       const base64Image = imageBuffer.toString('base64');
       const mimeType = 'image/png';
-      console.log(`🖼️ Image chargée: ${imagePath} (${Math.round(imageBuffer.length / 1024)} KB)`);
+      console.log(`Image chargée: ${imagePath} (${Math.round(imageBuffer.length / 1024)} KB)`);
       return `data:${mimeType};base64,${base64Image}`;
     } else {
-      console.log(`⚠️ Image non trouvée: ${imagePath}, utilisation du titre par défaut`);
+      console.log(`Image non trouvée: ${imagePath}, utilisation du titre par défaut`);
       return null;
     }
   } catch (error) {
-    console.error("❌ Erreur chargement image:", error.message);
+    console.error("Erreur chargement image:", error.message);
     return null;
   }
 };
@@ -95,29 +95,29 @@ const getBannerImageBase64 = () => {
 // ===== CONFIGURATION SENDGRID API =====
 const initializeSendGridClient = () => {
   console.log("=".repeat(60));
-  console.log("🔄 INITIALISATION CLIENT SENDGRID API");
+  console.log("INITIALISATION CLIENT SENDGRID API");
   console.log("=".repeat(60));
   
   if (!process.env.SENDGRID_API_KEY) {
-    console.error('❌ ERREUR: SENDGRID_API_KEY non définie');
+    console.error('ERREUR: SENDGRID_API_KEY non définie');
     throw new Error("SENDGRID_API_KEY manquante");
   }
   
   if (!process.env.SMTP_SENDER) {
-    console.error('❌ ERREUR: SMTP_SENDER non définie');
+    console.error('ERREUR: SMTP_SENDER non définie');
     throw new Error("SMTP_SENDER manquante");
   }
   
-  console.log("✅ SENDGRID_API_KEY: Présente");
-  console.log("✅ SMTP_SENDER:", process.env.SMTP_SENDER);
+  console.log("SENDGRID_API_KEY: Présente");
+  console.log("SMTP_SENDER:", process.env.SMTP_SENDER);
   
   try {
     sgMail.setApiKey(process.env.SENDGRID_API_KEY);
-    console.log("✅ Client SendGrid API initialisé");
+    console.log("Client SendGrid API initialisé");
     console.log("=".repeat(60));
     return sgMail;
   } catch (error) {
-    console.error("❌ Erreur SendGrid:", error.message);
+    console.error("Erreur SendGrid:", error.message);
     throw error;
   }
 };
@@ -133,10 +133,10 @@ const testDatabaseConnection = async () => {
     const client = await dbPool.connect();
     await client.query('SELECT NOW()');
     client.release();
-    console.log('✅ PostgreSQL connecté avec succès');
+    console.log('PostgreSQL connecté avec succès');
     return true;
   } catch (err) {
-    console.error('❌ Connexion PostgreSQL échouée:', err.message);
+    console.error('Connexion PostgreSQL échouée:', err.message);
     return false;
   }
 };
@@ -153,13 +153,13 @@ const createTables = async () => {
     
     if (!tablesExist.rows[0].exists) {
       await createNewTables();
-      console.log("✅ Tables créées avec succès");
+      console.log("Tables créées avec succès");
     } else {
       await updateExistingTables();
-      console.log("✅ Tables mises à jour avec succès");
+      console.log("Tables mises à jour avec succès");
     }
   } catch (error) {
-    console.error("❌ Erreur création/mise à jour tables:", error.message);
+    console.error("Erreur création/mise à jour tables:", error.message);
     throw error;
   }
 };
@@ -468,7 +468,7 @@ const updateExistingTables = async () => {
     await dbPool.query('CREATE INDEX IF NOT EXISTS idx_emails_destinator_id ON emails(destinator_id)');
   }
   
-  console.log("✅ Structure de base de données vérifiée et mise à jour");
+  console.log("Structure de base de données vérifiée et mise à jour");
 };
 
 // ===== CRÉATION DES TEMPLATES ET DESIGNS PAR DÉFAUT =====
@@ -479,7 +479,7 @@ const createDefaultTemplatesAndDesigns = async () => {
     );
     
     if (parseInt(existingTemplates.rows[0].count) === 0) {
-      console.log("📋 Création des templates système par défaut...");
+      console.log("Création des templates système par défaut...");
       
       const defaultTemplates = [
         {
@@ -490,12 +490,12 @@ const createDefaultTemplatesAndDesigns = async () => {
             <h1 style="color: #4F46E5;">Bienvenue {{user_name}} !</h1>
             <p>Merci de vous être inscrit à Youpi. Nous sommes ravis de vous accueillir.</p>
             <div style="background-color: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0;">
-              <h3>🚀 Votre compte est prêt !</h3>
+              <h3>Votre compte est prêt !</h3>
               <p>Vous pouvez maintenant :</p>
               <ul>
-                <li>📧 Envoyer et recevoir des emails</li>
-                <li>📁 Organiser vos emails dans des dossiers</li>
-                <li>🔍 Rechercher facilement vos messages</li>
+                <li>Envoyer et recevoir des emails</li>
+                <li>Organiser vos emails dans des dossiers</li>
+                <li>Rechercher facilement vos messages</li>
               </ul>
             </div>
             <p style="color: #6b7280; font-size: 14px; margin-top: 30px;">
@@ -546,7 +546,7 @@ const createDefaultTemplatesAndDesigns = async () => {
         );
       }
       
-      console.log(`✅ ${defaultTemplates.length} templates système créés`);
+      console.log(`${defaultTemplates.length} templates système créés`);
     }
 
     const existingDesigns = await dbPool.query(
@@ -554,7 +554,7 @@ const createDefaultTemplatesAndDesigns = async () => {
     );
     
     if (parseInt(existingDesigns.rows[0].count) === 0) {
-      console.log("📋 Création des designs par destinataire avec couleurs...");
+      console.log("Création des designs par destinataire avec couleurs...");
       
       const bannerBase64 = getBannerImageBase64();
       const bannerHtml = bannerBase64 
@@ -566,7 +566,7 @@ const createDefaultTemplatesAndDesigns = async () => {
       const footerHtml = `
         <div style="background: #1a2634; padding: 30px 20px; text-align: center; border-radius: 0 0 8px 8px;">
           <p style="color: #ffffff; margin: 0 0 15px 0; font-size: 16px; font-weight: 500;">
-            📞 Pour la prise de contact avec un service d'opération
+            Pour la prise de contact avec un service d'opération
           </p>
           <div style="display: inline-block; background: rgba(255,255,255,0.1); padding: 15px 25px; border-radius: 50px; margin-bottom: 20px;">
             <p style="color: #ffffff; margin: 0; font-size: 18px; font-weight: bold;">
@@ -783,10 +783,10 @@ const createDefaultTemplatesAndDesigns = async () => {
         );
       }
       
-      console.log(`✅ ${defaultDesigns.length} designs par destinataire créés avec couleurs personnalisées`);
+      console.log(`${defaultDesigns.length} designs par destinataire créés avec couleurs personnalisées`);
     }
   } catch (error) {
-    console.error("❌ Erreur création templates/designs par défaut:", error.message);
+    console.error("Erreur création templates/designs par défaut:", error.message);
   }
 };
 
@@ -823,7 +823,7 @@ const sendEmailViaAPI = async (emailData) => {
       statusCode: response[0].statusCode
     };
   } catch (error) {
-    console.error("❌ Erreur SendGrid:", error.message);
+    console.error("Erreur SendGrid:", error.message);
     if (error.response && error.response.body) {
       console.error("Détails SendGrid:", JSON.stringify(error.response.body, null, 2));
     }
@@ -877,10 +877,10 @@ const processAttachments = async (files, emailId) => {
         content_id: attachment.id
       });
       
-      console.log(`📎 Pièce jointe sauvegardée: ${file.originalname} (${Math.round(file.size / 1024)} KB)`);
+      console.log(`Pièce jointe sauvegardée: ${file.originalname} (${Math.round(file.size / 1024)} KB)`);
       
     } catch (error) {
-      console.error(`❌ Erreur traitement pièce jointe ${file.originalname}:`, error.message);
+      console.error(`Erreur traitement pièce jointe ${file.originalname}:`, error.message);
     }
   }
   
@@ -899,7 +899,7 @@ const getAttachmentsByEmailId = async (emailId) => {
     
     return result.rows;
   } catch (error) {
-    console.error(`❌ Erreur récupération pièces jointes pour email ${emailId}:`, error.message);
+    console.error(`Erreur récupération pièces jointes pour email ${emailId}:`, error.message);
     return [];
   }
 };
@@ -914,15 +914,15 @@ const deleteAttachmentsByEmailId = async (emailId) => {
     for (const att of attachments.rows) {
       if (att.file_path && fs.existsSync(att.file_path)) {
         fs.unlinkSync(att.file_path);
-        console.log(`🗑️ Fichier supprimé: ${att.file_path}`);
+        console.log(`Fichier supprimé: ${att.file_path}`);
       }
     }
     
     await dbPool.query('DELETE FROM attachments WHERE email_id = $1', [emailId]);
     
-    console.log(`✅ Pièces jointes supprimées pour l'email ${emailId}`);
+    console.log(`Pièces jointes supprimées pour l'email ${emailId}`);
   } catch (error) {
-    console.error(`❌ Erreur suppression pièces jointes pour email ${emailId}:`, error.message);
+    console.error(`Erreur suppression pièces jointes pour email ${emailId}:`, error.message);
   }
 };
 
@@ -945,11 +945,11 @@ const uploadAttachmentToCloud = async (attachmentId) => {
       [cloudUrl, attachmentId]
     );
     
-    console.log(`☁️ Pièce jointe uploadée vers le cloud: ${cloudUrl}`);
+    console.log(`Pièce jointe uploadée vers le cloud: ${cloudUrl}`);
     
     return cloudUrl;
   } catch (error) {
-    console.error(`❌ Erreur upload cloud pièce jointe ${attachmentId}:`, error.message);
+    console.error(`Erreur upload cloud pièce jointe ${attachmentId}:`, error.message);
     throw error;
   }
 };
@@ -982,7 +982,7 @@ app.use((req, res, next) => {
         logBody[key] = value;
       }
     }
-    console.log(`📦 Body:`, logBody);
+    console.log(`Body:`, logBody);
   }
   
   res.setHeader('X-Request-ID', requestId);
@@ -990,7 +990,7 @@ app.use((req, res, next) => {
   const originalSend = res.send;
   res.send = function(body) {
     const duration = Date.now() - start;
-    const statusEmoji = res.statusCode >= 400 ? '❌' : '✅';
+    const statusEmoji = res.statusCode >= 400 ? 'ERREUR' : 'SUCCES';
     console.log(`[${new Date().toISOString()}] ${statusEmoji} ${req.method} ${req.originalUrl} - ${res.statusCode} (${duration}ms)`);
     originalSend.call(this, body);
   };
@@ -1033,7 +1033,7 @@ const authenticateToken = async (req, res, next) => {
     req.userId = userId;
     next();
   } catch (error) {
-    console.error("❌ Erreur authentification:", error);
+    console.error("Erreur authentification:", error);
     res.status(500).json({ success: false, error: 'Erreur d\'authentification' });
   }
 };
@@ -1043,7 +1043,7 @@ app.post("/api/auth/register", async (req, res) => {
   try {
     const { email, password, name } = req.body;
     
-    console.log("📝 Inscription:", { email, name: name || email.split('@')[0] });
+    console.log("Inscription:", { email, name: name || email.split('@')[0] });
     
     if (!email || !password) {
       return res.status(400).json({ success: false, error: "Email et mot de passe requis" });
@@ -1087,7 +1087,7 @@ app.post("/api/auth/register", async (req, res) => {
     });
     
   } catch (error) {
-    console.error("❌ Erreur inscription:", error);
+    console.error("Erreur inscription:", error);
     res.status(500).json({ success: false, error: "Erreur serveur lors de l'inscription" });
   }
 });
@@ -1096,7 +1096,7 @@ app.post("/api/auth/login", async (req, res) => {
   try {
     const { email, password } = req.body;
     
-    console.log("🔐 Connexion:", { email });
+    console.log("Connexion:", { email });
     
     if (!email || !password) {
       return res.status(400).json({ success: false, error: "Email et mot de passe requis" });
@@ -1129,7 +1129,7 @@ app.post("/api/auth/login", async (req, res) => {
     });
     
   } catch (error) {
-    console.error("❌ Erreur connexion:", error);
+    console.error("Erreur connexion:", error);
     res.status(500).json({ success: false, error: "Erreur serveur lors de la connexion" });
   }
 });
@@ -1151,7 +1151,7 @@ app.get("/api/auth/profile", authenticateToken, async (req, res) => {
     });
     
   } catch (error) {
-    console.error("❌ Erreur récupération profil:", error);
+    console.error("Erreur récupération profil:", error);
     res.status(500).json({ success: false, error: "Erreur serveur" });
   }
 });
@@ -1182,21 +1182,22 @@ app.delete("/api/auth/delete", authenticateToken, async (req, res) => {
     });
     
   } catch (error) {
-    console.error("❌ Erreur suppression utilisateur:", error);
+    console.error("Erreur suppression utilisateur:", error);
     res.status(500).json({ success: false, error: "Erreur serveur lors de la suppression" });
   }
 });
 
-// ===== ✅ ROUTE PRINCIPALE D'ENVOI D'EMAIL AVEC DESIGN =====
+// ===== ROUTE PRINCIPALE D'ENVOI D'EMAIL AVEC DESIGN =====
 app.post("/api/emails/send", authenticateToken, (req, res) => {
   upload(req, res, async (err) => {
     const startTime = Date.now();
     const requestId = req.headers['x-request-id'] || Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
     
-    console.log(`\n📧 ENVOI EMAIL AVEC DESIGN [ID:${requestId}]`);
+    console.log(`\nENVOI EMAIL AVEC DESIGN [ID:${requestId}]`);
+    console.log(`destinator_id reçu: ${req.body.destinator_id}`);
     
     if (err) {
-      console.error("❌ Erreur upload:", err);
+      console.error("Erreur upload:", err);
       return res.status(400).json({
         success: false,
         error: "Erreur lors de l'upload des fichiers",
@@ -1216,8 +1217,8 @@ app.post("/api/emails/send", authenticateToken, (req, res) => {
         });
       }
       
-      console.log(`📤 Envoi email de user ${user_id} à ${to} [design: ${destinator_id}]`);
-      console.log(`📎 ${files.length} pièce(s) jointe(s) reçue(s)`);
+      console.log(`Envoi email de user ${user_id} à ${to} [design: ${destinator_id}]`);
+      console.log(`${files.length} pièce(s) jointe(s) reçue(s)`);
       
       const userResult = await dbPool.query('SELECT email FROM users WHERE id = $1', [user_id]);
       if (userResult.rows.length === 0) {
@@ -1225,7 +1226,7 @@ app.post("/api/emails/send", authenticateToken, (req, res) => {
       }
       const userEmail = userResult.rows[0].email;
       
-      // ===== 🔍 RECHERCHE ET APPLICATION DU DESIGN =====
+      // ===== RECHERCHE ET APPLICATION DU DESIGN =====
       let designHtml = null;
       let designSubject = null;
       let designId = null;
@@ -1255,36 +1256,38 @@ app.post("/api/emails/send", authenticateToken, (req, res) => {
           // 2. REMPLACER TOUTES LES VARIABLES DANS LE HTML
           let html = design.html_content;
           
-          // Remplacer le sujet dans le HTML
           html = html.replace(/{{subject}}/g, subject || '');
-          
-          // Remplacer le contenu principal
           html = html.replace(/{{contenu_principal}}/g, message || '');
-          
-          // Remplacer les variables additionnelles
           html = html.replace(/{{sender_email}}/g, userEmail);
           html = html.replace(/{{current_year}}/g, new Date().getFullYear().toString());
           html = html.replace(/{{date}}/g, new Date().toLocaleDateString('fr-FR'));
           html = html.replace(/{{time}}/g, new Date().toLocaleTimeString('fr-FR'));
           
-          // Nettoyer les variables non remplacées
+          // ===== INSERTION DE L'IMAGE BANNIÈRE =====
+          const bannerBase64 = getBannerImageBase64();
+          if (bannerBase64) {
+            html = html.replace(
+              /{{banner_image}}/g,
+              `<img src="${bannerBase64}" alt="Youpi. Banner" style="width: 100%; max-width: 600px; height: auto; display: block; border-radius: 8px 8px 0 0;">`
+            );
+            if (html.includes('banner-youpi.png')) {
+              html = html.replace(/banner-youpi\.png/g, bannerBase64);
+            }
+          }
+          
           html = html.replace(/{{[^}]+}}/g, '');
           
           designHtml = html;
-          
-          // 3. FORMATER LE SUJET DU DESIGN
           designSubject = design.subject
             .replace(/{{subject}}/g, subject || '')
             .replace(/{{[^}]+}}/g, '');
           
-          console.log(`✅ DESIGN TROUVÉ: ${design.design_name} (${design.primary_color})`);
-          console.log(`   ID: ${design.id}, Destinataire: ${design.destinator_id}`);
-          console.log(`   Sujet formaté: ${designSubject}`);
-          console.log(`   HTML généré: ${html.length} caractères`);
+          console.log(`DESIGN TROUVÉ: ${design.design_name} (${design.primary_color})`);
+          console.log(`ID: ${design.id}, Destinataire: ${design.destinator_id}`);
+          console.log(`Image bannière: ${bannerBase64 ? 'Intégrée' : 'Non trouvée'}`);
         } else {
-          console.log(`⚠️ Aucun design trouvé pour '${destinator_id}', utilisation du design par défaut`);
+          console.log(`Aucun design trouvé pour '${destinator_id}', utilisation du design par défaut`);
           
-          // 4. DESIGN PAR DÉFAUT (other)
           const defaultDesign = await dbPool.query(
             `SELECT id, destinator_id, design_name, subject, html_content,
                     primary_color, secondary_color, gradient_start, gradient_end
@@ -1309,8 +1312,12 @@ app.post("/api/emails/send", authenticateToken, (req, res) => {
             html = html.replace(/{{contenu_principal}}/g, message || '');
             html = html.replace(/{{sender_email}}/g, userEmail);
             html = html.replace(/{{current_year}}/g, new Date().getFullYear().toString());
-            html = html.replace(/{{date}}/g, new Date().toLocaleDateString('fr-FR'));
-            html = html.replace(/{{time}}/g, new Date().toLocaleTimeString('fr-FR'));
+            
+            const bannerBase64 = getBannerImageBase64();
+            if (bannerBase64) {
+              html = html.replace(/{{banner_image}}/g, `<img src="${bannerBase64}" alt="Youpi. Banner" style="width: 100%; max-width: 600px; height: auto; display: block;">`);
+            }
+            
             html = html.replace(/{{[^}]+}}/g, '');
             
             designHtml = html;
@@ -1320,12 +1327,12 @@ app.post("/api/emails/send", authenticateToken, (req, res) => {
           }
         }
       } catch (designError) {
-        console.error("❌ Erreur récupération design:", designError.message);
+        console.error("Erreur récupération design:", designError.message);
       }
       
       // ===== DESIGN PAR DÉFAUT ABSOLU =====
       if (!designHtml) {
-        console.log("📄 Utilisation du template par défaut absolu");
+        console.log("Utilisation du template par défaut absolu");
         
         const bannerBase64 = getBannerImageBase64();
         const bannerHtml = bannerBase64 
@@ -1354,7 +1361,7 @@ app.post("/api/emails/send", authenticateToken, (req, res) => {
       <div style="text-align: justify;">${message.replace(/\n/g, '<br>')}</div>
     </div>
     <div class="footer">
-      <p style="margin: 0 0 15px 0; font-size: 16px;">📞 Pour la prise de contact avec un service d'opération</p>
+      <p style="margin: 0 0 15px 0; font-size: 16px;">Pour la prise de contact avec un service d'opération</p>
       <div style="background: rgba(255,255,255,0.1); padding: 15px 25px; border-radius: 50px; margin-bottom: 20px; display: inline-block;">
         <p style="margin: 0; font-size: 18px; font-weight: bold;">+243 834 171 852 / +243 856 163 550</p>
       </div>
@@ -1379,20 +1386,10 @@ app.post("/api/emails/send", authenticateToken, (req, res) => {
       
       const emailId = emailResult.rows[0].id;
       
-      // Traiter les pièces jointes
       let sendGridAttachments = [];
       if (files.length > 0) {
         sendGridAttachments = await processAttachments(files, emailId);
       }
-      
-      // ===== ENVOI VIA SENDGRID =====
-      console.log("⏳ Envoi via SendGrid...");
-      console.log(`   Design: ${designInfo?.design_name || 'Défaut'} (${designInfo?.primary_color || '#4A5568'})`);
-      console.log(`   Destinator ID: ${destinator_id}`);
-      console.log(`   Design ID: ${designId || 'aucun'}`);
-      console.log(`   Sujet final: ${finalSubject}`);
-      
-      const client = getSendGridClient();
       
       const emailData = {
         to: to,
@@ -1404,20 +1401,23 @@ app.post("/api/emails/send", authenticateToken, (req, res) => {
         attachments: sendGridAttachments
       };
       
+      console.log("Envoi via SendGrid...");
+      console.log(`Design: ${designInfo?.design_name || 'Défaut'} (${designInfo?.primary_color || '#4A5568'})`);
+      console.log(`Destinator ID: ${destinator_id}`);
+      console.log(`Design ID: ${designId || 'aucun'}`);
+      
       const sendStartTime = Date.now();
       const result = await sendEmailViaAPI(emailData);
       const sendTime = Date.now() - sendStartTime;
       
-      // Mettre à jour le statut de l'email
       await dbPool.query(
         `UPDATE emails SET status = 'sent', sendgrid_message_id = $1 WHERE id = $2`,
         [result.messageId, emailId]
       );
       
-      console.log(`✅ EMAIL ENVOYÉ AVEC SUCCÈS en ${sendTime}ms`);
-      console.log(`   Message ID: ${result.messageId || 'N/A'}`);
-      console.log(`   Design appliqué: ${designInfo?.design_name || 'Défaut'}`);
-      console.log(`   Couleur: ${designInfo?.primary_color || '#4A5568'}`);
+      console.log(`EMAIL ENVOYÉ AVEC SUCCÈS en ${sendTime}ms`);
+      console.log(`Message ID: ${result.messageId || 'N/A'}`);
+      console.log(`Design appliqué: ${designInfo?.design_name || 'Défaut'}`);
       console.log("=".repeat(70) + "\n");
       
       const totalTime = Date.now() - startTime;
@@ -1447,7 +1447,7 @@ app.post("/api/emails/send", authenticateToken, (req, res) => {
     } catch (error) {
       const totalTime = Date.now() - startTime;
       
-      console.error(`💥 Erreur envoi email [${requestId}]:`, error.message);
+      console.error(`Erreur envoi email [${requestId}]:`, error.message);
       
       if (req.userId && req.body) {
         try {
@@ -1468,7 +1468,7 @@ app.post("/api/emails/send", authenticateToken, (req, res) => {
             ]
           );
         } catch (dbError) {
-          console.error("❌ Erreur sauvegarde email échoué:", dbError);
+          console.error("Erreur sauvegarde email échoué:", dbError);
         }
       }
       
@@ -1477,10 +1477,10 @@ app.post("/api/emails/send", authenticateToken, (req, res) => {
           try {
             if (fs.existsSync(file.path)) {
               fs.unlinkSync(file.path);
-              console.log(`🗑️ Fichier temporaire supprimé: ${file.path}`);
+              console.log(`Fichier temporaire supprimé: ${file.path}`);
             }
           } catch (cleanupError) {
-            console.error("❌ Erreur nettoyage fichier:", cleanupError);
+            console.error("Erreur nettoyage fichier:", cleanupError);
           }
         }
       }
@@ -1497,7 +1497,7 @@ app.post("/api/emails/send", authenticateToken, (req, res) => {
 });
 
 /**
- * ✅ DEBUG: ROUTE POUR VOIR TOUS LES DESIGNS
+ * DEBUG: ROUTE POUR VOIR TOUS LES DESIGNS
  */
 app.get("/api/designs/debug", authenticateToken, async (req, res) => {
   try {
@@ -1530,7 +1530,7 @@ app.get("/api/designs/debug", authenticateToken, async (req, res) => {
 // ===== ROUTES DESIGNS - GESTION COMPLÈTE =====
 
 /**
- * ✅ LISTE TOUS LES DESIGNS DISPONIBLES
+ * LISTE TOUS LES DESIGNS DISPONIBLES
  */
 app.get("/api/designs/available", authenticateToken, async (req, res) => {
   try {
@@ -1543,7 +1543,7 @@ app.get("/api/designs/available", authenticateToken, async (req, res) => {
        ORDER BY destinator_id`
     );
     
-    console.log(`🎨 ${result.rows.length} designs disponibles récupérés`);
+    console.log(`${result.rows.length} designs disponibles récupérés`);
     
     res.json({
       success: true,
@@ -1552,19 +1552,19 @@ app.get("/api/designs/available", authenticateToken, async (req, res) => {
     });
     
   } catch (error) {
-    console.error("❌ Erreur récupération designs disponibles:", error);
+    console.error("Erreur récupération designs disponibles:", error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
 /**
- * ✅ TEST D'UN DESIGN SPÉCIFIQUE
+ * TEST D'UN DESIGN SPÉCIFIQUE
  */
 app.get("/api/designs/test/:destinator_id", authenticateToken, async (req, res) => {
   try {
     const { destinator_id } = req.params;
     
-    console.log(`🔍 Test de design pour: ${destinator_id}`);
+    console.log(`Test de design pour: ${destinator_id}`);
     
     const designResult = await dbPool.query(
       `SELECT id, destinator_id, design_name, subject, html_content, 
@@ -1594,7 +1594,7 @@ app.get("/api/designs/test/:destinator_id", authenticateToken, async (req, res) 
       [destinator_id]
     );
     
-    console.log(`✅ Design testé: ${design.design_name} (${design.primary_color})`);
+    console.log(`Design testé: ${design.design_name} (${design.primary_color})`);
     
     res.json({
       success: true,
@@ -1620,13 +1620,13 @@ app.get("/api/designs/test/:destinator_id", authenticateToken, async (req, res) 
     });
     
   } catch (error) {
-    console.error("❌ Erreur test design:", error);
+    console.error("Erreur test design:", error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
 /**
- * ✅ CRÉATION D'UN NOUVEAU DESIGN AVEC COULEURS
+ * CRÉATION D'UN NOUVEAU DESIGN AVEC COULEURS
  */
 app.post("/api/designs/create", authenticateToken, async (req, res) => {
   try {
@@ -1684,8 +1684,8 @@ app.post("/api/designs/create", authenticateToken, async (req, res) => {
       ]
     );
     
-    console.log(`✅ Nouveau design créé: ${design_name} (${destinator_id})`);
-    console.log(`   Couleurs: ${primary_color}, ${secondary_color}`);
+    console.log(`Nouveau design créé: ${design_name} (${destinator_id})`);
+    console.log(`Couleurs: ${primary_color}, ${secondary_color}`);
     
     res.status(201).json({
       success: true,
@@ -1694,13 +1694,13 @@ app.post("/api/designs/create", authenticateToken, async (req, res) => {
     });
     
   } catch (error) {
-    console.error("❌ Erreur création design:", error);
+    console.error("Erreur création design:", error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
 /**
- * ✅ MISE À JOUR DES COULEURS D'UN DESIGN
+ * MISE À JOUR DES COULEURS D'UN DESIGN
  */
 app.patch("/api/designs/:id/colors", authenticateToken, async (req, res) => {
   try {
@@ -1753,7 +1753,7 @@ app.patch("/api/designs/:id/colors", authenticateToken, async (req, res) => {
       return res.status(404).json({ success: false, error: "Design non trouvé" });
     }
     
-    console.log(`🎨 Couleurs mises à jour pour le design ${result.rows[0].design_name}`);
+    console.log(`Couleurs mises à jour pour le design ${result.rows[0].design_name}`);
     
     res.json({
       success: true,
@@ -1772,7 +1772,7 @@ app.patch("/api/designs/:id/colors", authenticateToken, async (req, res) => {
     });
     
   } catch (error) {
-    console.error("❌ Erreur mise à jour couleurs:", error);
+    console.error("Erreur mise à jour couleurs:", error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -1854,7 +1854,7 @@ app.get("/api/emails", authenticateToken, async (req, res) => {
     });
     
   } catch (error) {
-    console.error("❌ Erreur récupération emails:", error);
+    console.error("Erreur récupération emails:", error);
     res.status(500).json({ 
       success: false, 
       error: "Erreur serveur lors de la récupération des emails",
@@ -1908,7 +1908,7 @@ app.get("/api/emails/:id", authenticateToken, async (req, res) => {
     });
     
   } catch (error) {
-    console.error("❌ Erreur récupération email:", error);
+    console.error("Erreur récupération email:", error);
     res.status(500).json({ success: false, error: "Erreur serveur" });
   }
 });
@@ -1948,7 +1948,7 @@ app.post("/api/emails/draft", authenticateToken, (req, res) => {
       });
       
     } catch (error) {
-      console.error("❌ Erreur création brouillon:", error);
+      console.error("Erreur création brouillon:", error);
       res.status(500).json({ success: false, error: "Erreur serveur" });
     }
   });
@@ -1984,7 +1984,7 @@ app.get("/api/attachments/:id/download", authenticateToken, async (req, res) => 
     res.download(attachment.file_path, attachment.original_filename);
     
   } catch (error) {
-    console.error("❌ Erreur téléchargement pièce jointe:", error);
+    console.error("Erreur téléchargement pièce jointe:", error);
     res.status(500).json({ success: false, error: "Erreur serveur" });
   }
 });
@@ -2025,7 +2025,7 @@ app.get("/api/attachments/:id", authenticateToken, async (req, res) => {
     });
     
   } catch (error) {
-    console.error("❌ Erreur récupération pièce jointe:", error);
+    console.error("Erreur récupération pièce jointe:", error);
     res.status(500).json({ success: false, error: "Erreur serveur" });
   }
 });
@@ -2074,7 +2074,7 @@ app.delete("/api/attachments/:id", authenticateToken, async (req, res) => {
     });
     
   } catch (error) {
-    console.error("❌ Erreur suppression pièce jointe:", error);
+    console.error("Erreur suppression pièce jointe:", error);
     res.status(500).json({ success: false, error: "Erreur serveur" });
   }
 });
@@ -2130,13 +2130,13 @@ app.get("/", (req, res) => {
 
 app.get("/api/health", async (req, res) => {
   try {
-    let dbStatus = "❌ non connecté";
+    let dbStatus = "non connecté";
     let dbTime = null;
     let tablesInfo = [];
     
     try {
       const dbResult = await dbPool.query('SELECT NOW() as db_time');
-      dbStatus = "✅ connecté";
+      dbStatus = "connecté";
       dbTime = dbResult.rows[0].db_time;
       
       const tablesResult = await dbPool.query(`
@@ -2148,7 +2148,7 @@ app.get("/api/health", async (req, res) => {
       `);
       tablesInfo = tablesResult.rows;
     } catch (dbError) {
-      console.error("❌ Erreur santé DB:", dbError.message);
+      console.error("Erreur santé DB:", dbError.message);
     }
     
     const bannerImageExists = fs.existsSync(path.join(__dirname, 'assets', 'banner-youpi.png'));
@@ -2163,10 +2163,10 @@ app.get("/api/health", async (req, res) => {
       uptime: process.uptime(),
       services: {
         database: dbStatus,
-        sendgrid: process.env.SENDGRID_API_KEY ? "✅ configuré" : "❌ manquant",
-        smtp_sender: process.env.SMTP_SENDER || "❌ manquant",
-        banner_image: bannerImageExists ? "✅ présent" : "⚠️ absent",
-        uploads_directory: uploadsDirExists ? "✅ prêt" : "✅ créé au premier upload",
+        sendgrid: process.env.SENDGRID_API_KEY ? "configuré" : "manquant",
+        smtp_sender: process.env.SMTP_SENDER || "manquant",
+        banner_image: bannerImageExists ? "présent" : "absent",
+        uploads_directory: uploadsDirExists ? "prêt" : "créé au premier upload",
         designs_total: parseInt(designsCount.rows[0].count),
         designs_active: parseInt(designsActive.rows[0].count)
       },
@@ -2200,7 +2200,7 @@ app.use((req, res) => {
 });
 
 app.use((err, req, res, next) => {
-  console.error("🔥 Erreur globale:", err);
+  console.error("Erreur globale:", err);
   res.status(500).json({
     success: false,
     error: "Erreur interne du serveur",
@@ -2212,7 +2212,7 @@ app.use((err, req, res, next) => {
 // ===== DÉMARRAGE =====
 const initializeServices = async () => {
   try {
-    console.log("🔄 Initialisation des services...");
+    console.log("Initialisation des services...");
     initializeDatabase();
     getSendGridClient();
     
@@ -2223,20 +2223,20 @@ const initializeServices = async () => {
     
     await createTables();
     await createDefaultTemplatesAndDesigns();
-    console.log("🚀 Tous les services sont prêts !");
+    console.log("Tous les services sont prêts !");
   } catch (error) {
-    console.error("💥 Échec initialisation:", error);
+    console.error("Échec initialisation:", error);
     process.exit(1);
   }
 };
 
 process.on('uncaughtException', (error) => {
-  console.error("💥 ERREUR NON CAPTURÉE:", error);
+  console.error("ERREUR NON CAPTURÉE:", error);
   process.exit(1);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-  console.error("💥 PROMESSE NON GÉRÉE:", reason);
+  console.error("PROMESSE NON GÉRÉE:", reason);
   process.exit(1);
 });
 
@@ -2246,32 +2246,27 @@ const startServer = async () => {
     
     const server = app.listen(PORT, HOST, () => {
       console.log("\n" + "=".repeat(70));
-      console.log("🚀 YOUPI. API - DÉMARRÉE AVEC SUCCÈS");
+      console.log("YOUPI. API - DÉMARRÉE AVEC SUCCÈS");
       console.log("=".repeat(70));
-      console.log(`🌐 URL: https://system-mail-youpi-backend.onrender.com`);
-      console.log(`🔧 Port: ${PORT}`);
-      console.log(`🎨 Designs disponibles avec couleurs:`);
+      console.log(`URL: https://system-mail-youpi-backend.onrender.com`);
+      console.log(`Port: ${PORT}`);
+      console.log(`Designs disponibles avec couleurs:`);
       console.log(`   • Marketing: #FF6B6B (Orange/Rouge)`);
       console.log(`   • Partenaire: #0F4C81 (Bleu foncé)`);
       console.log(`   • Publicité: #F9A826 (Jaune/Orange)`);
       console.log(`   • Autre: #4A5568 (Gris)`);
-      console.log(`🖼️  Image base64: ${getBannerImageBase64() ? '✅ Chargée' : '⚠️ Non trouvée'}`);
-      console.log(`📧 Route /api/emails/send: ✅ Active avec design automatique selon destinator_id`);
-      console.log(`🎨 Route /api/designs/debug: ✅ Active - Voir tous les designs`);
-      console.log(`🎨 Route /api/designs/available: ✅ Active`);
-      console.log(`🎨 Route /api/designs/test/:id: ✅ Active`);
-      console.log(`🎨 Route /api/designs/create: ✅ Active`);
-      console.log(`🎨 Route /api/designs/:id/colors: ✅ Active`);
+      console.log(`Image base64: ${getBannerImageBase64() ? 'Chargée' : 'Non trouvée'}`);
+      console.log(`Route /api/emails/send: Active avec design automatique selon destinator_id`);
       console.log("=".repeat(70));
     });
     
     const shutdown = (signal) => {
-      console.log(`\n🛑 Signal ${signal} reçu - Arrêt du serveur...`);
+      console.log(`\nSignal ${signal} reçu - Arrêt du serveur...`);
       server.close(() => {
-        console.log('✅ Serveur arrêté');
+        console.log('Serveur arrêté');
         if (dbPool) {
           dbPool.end(() => {
-            console.log('✅ Pool PostgreSQL fermé');
+            console.log('Pool PostgreSQL fermé');
             process.exit(0);
           });
         } else {
@@ -2284,7 +2279,7 @@ const startServer = async () => {
     process.on('SIGINT', () => shutdown('SIGINT'));
     
   } catch (error) {
-    console.error("💥 IMPOSSIBLE DE DÉMARRER LE SERVEUR:", error.message);
+    console.error("IMPOSSIBLE DE DÉMARRER LE SERVEUR:", error.message);
     process.exit(1);
   }
 };
