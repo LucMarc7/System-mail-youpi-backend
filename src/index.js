@@ -1232,6 +1232,7 @@ app.post("/api/emails/send", authenticateToken, (req, res) => {
       let designInfo = null;
       
       try {
+        // 1. RECHERCHER LE DESIGN SPÉCIFIQUE AU DESTINATAIRE
         const designResult = await dbPool.query(
           `SELECT id, destinator_id, design_name, subject, html_content, 
                   primary_color, secondary_color, gradient_start, gradient_end
@@ -1251,25 +1252,39 @@ app.post("/api/emails/send", authenticateToken, (req, res) => {
             secondary_color: design.secondary_color
           };
           
+          // 2. REMPLACER TOUTES LES VARIABLES DANS LE HTML
           let html = design.html_content;
-          html = html.replace(/{{contenu_principal}}/g, message || '');
+          
+          // Remplacer le sujet dans le HTML
           html = html.replace(/{{subject}}/g, subject || '');
+          
+          // Remplacer le contenu principal
+          html = html.replace(/{{contenu_principal}}/g, message || '');
+          
+          // Remplacer les variables additionnelles
           html = html.replace(/{{sender_email}}/g, userEmail);
           html = html.replace(/{{current_year}}/g, new Date().getFullYear().toString());
           html = html.replace(/{{date}}/g, new Date().toLocaleDateString('fr-FR'));
           html = html.replace(/{{time}}/g, new Date().toLocaleTimeString('fr-FR'));
+          
+          // Nettoyer les variables non remplacées
           html = html.replace(/{{[^}]+}}/g, '');
           
           designHtml = html;
+          
+          // 3. FORMATER LE SUJET DU DESIGN
           designSubject = design.subject
             .replace(/{{subject}}/g, subject || '')
             .replace(/{{[^}]+}}/g, '');
           
           console.log(`✅ DESIGN TROUVÉ: ${design.design_name} (${design.primary_color})`);
           console.log(`   ID: ${design.id}, Destinataire: ${design.destinator_id}`);
+          console.log(`   Sujet formaté: ${designSubject}`);
+          console.log(`   HTML généré: ${html.length} caractères`);
         } else {
           console.log(`⚠️ Aucun design trouvé pour '${destinator_id}', utilisation du design par défaut`);
           
+          // 4. DESIGN PAR DÉFAUT (other)
           const defaultDesign = await dbPool.query(
             `SELECT id, destinator_id, design_name, subject, html_content,
                     primary_color, secondary_color, gradient_start, gradient_end
@@ -1290,10 +1305,12 @@ app.post("/api/emails/send", authenticateToken, (req, res) => {
             };
             
             let html = design.html_content;
-            html = html.replace(/{{contenu_principal}}/g, message || '');
             html = html.replace(/{{subject}}/g, subject || '');
+            html = html.replace(/{{contenu_principal}}/g, message || '');
             html = html.replace(/{{sender_email}}/g, userEmail);
             html = html.replace(/{{current_year}}/g, new Date().getFullYear().toString());
+            html = html.replace(/{{date}}/g, new Date().toLocaleDateString('fr-FR'));
+            html = html.replace(/{{time}}/g, new Date().toLocaleTimeString('fr-FR'));
             html = html.replace(/{{[^}]+}}/g, '');
             
             designHtml = html;
@@ -1308,6 +1325,8 @@ app.post("/api/emails/send", authenticateToken, (req, res) => {
       
       // ===== DESIGN PAR DÉFAUT ABSOLU =====
       if (!designHtml) {
+        console.log("📄 Utilisation du template par défaut absolu");
+        
         const bannerBase64 = getBannerImageBase64();
         const bannerHtml = bannerBase64 
           ? `<img src="${bannerBase64}" alt="Youpi. Banner" style="width: 100%; max-width: 600px; height: auto; display: block;">`
@@ -1360,10 +1379,20 @@ app.post("/api/emails/send", authenticateToken, (req, res) => {
       
       const emailId = emailResult.rows[0].id;
       
+      // Traiter les pièces jointes
       let sendGridAttachments = [];
       if (files.length > 0) {
         sendGridAttachments = await processAttachments(files, emailId);
       }
+      
+      // ===== ENVOI VIA SENDGRID =====
+      console.log("⏳ Envoi via SendGrid...");
+      console.log(`   Design: ${designInfo?.design_name || 'Défaut'} (${designInfo?.primary_color || '#4A5568'})`);
+      console.log(`   Destinator ID: ${destinator_id}`);
+      console.log(`   Design ID: ${designId || 'aucun'}`);
+      console.log(`   Sujet final: ${finalSubject}`);
+      
+      const client = getSendGridClient();
       
       const emailData = {
         to: to,
@@ -1375,15 +1404,11 @@ app.post("/api/emails/send", authenticateToken, (req, res) => {
         attachments: sendGridAttachments
       };
       
-      console.log("⏳ Envoi via SendGrid...");
-      console.log(`   Design: ${designInfo?.design_name || 'Défaut'} (${designInfo?.primary_color || '#4A5568'})`);
-      console.log(`   Destinator ID: ${destinator_id}`);
-      console.log(`   Design ID: ${designId || 'aucun'}`);
-      
       const sendStartTime = Date.now();
       const result = await sendEmailViaAPI(emailData);
       const sendTime = Date.now() - sendStartTime;
       
+      // Mettre à jour le statut de l'email
       await dbPool.query(
         `UPDATE emails SET status = 'sent', sendgrid_message_id = $1 WHERE id = $2`,
         [result.messageId, emailId]
@@ -1392,6 +1417,7 @@ app.post("/api/emails/send", authenticateToken, (req, res) => {
       console.log(`✅ EMAIL ENVOYÉ AVEC SUCCÈS en ${sendTime}ms`);
       console.log(`   Message ID: ${result.messageId || 'N/A'}`);
       console.log(`   Design appliqué: ${designInfo?.design_name || 'Défaut'}`);
+      console.log(`   Couleur: ${designInfo?.primary_color || '#4A5568'}`);
       console.log("=".repeat(70) + "\n");
       
       const totalTime = Date.now() - startTime;
@@ -1468,6 +1494,37 @@ app.post("/api/emails/send", authenticateToken, (req, res) => {
       });
     }
   });
+});
+
+/**
+ * ✅ DEBUG: ROUTE POUR VOIR TOUS LES DESIGNS
+ */
+app.get("/api/designs/debug", authenticateToken, async (req, res) => {
+  try {
+    const designs = await dbPool.query(`
+      SELECT id, destinator_id, design_name, primary_color, is_active, 
+             (SELECT COUNT(*) FROM emails WHERE destinator_id = d.destinator_id) as usage_count
+      FROM email_designs d
+      ORDER BY destinator_id
+    `);
+    
+    const usage = await dbPool.query(`
+      SELECT destinator_id, COUNT(*) as count 
+      FROM emails 
+      WHERE destinator_id IS NOT NULL 
+      GROUP BY destinator_id
+    `);
+    
+    res.json({
+      success: true,
+      total_designs: designs.rows.length,
+      designs: designs.rows,
+      usage_statistics: usage.rows,
+      message: "Utilisez destinator_id dans votre requête POST /api/emails/send"
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 // ===== ROUTES DESIGNS - GESTION COMPLÈTE =====
@@ -2027,7 +2084,7 @@ app.get("/", (req, res) => {
   res.json({
     message: "Youpi. API avec Base de Données",
     status: "online",
-    version: "7.0.0",
+    version: "7.1.0",
     timestamp: new Date().toISOString(),
     features: [
       "PostgreSQL", 
@@ -2051,10 +2108,11 @@ app.get("/", (req, res) => {
       emails: [
         "GET /api/emails",
         "GET /api/emails/:id",
-        "POST /api/emails/send (avec design automatique)",
+        "POST /api/emails/send (avec design automatique selon destinator_id)",
         "POST /api/emails/draft"
       ],
       designs: [
+        "GET /api/designs/debug",
         "GET /api/designs/available",
         "GET /api/designs/test/:destinator_id",
         "POST /api/designs/create",
@@ -2097,6 +2155,7 @@ app.get("/api/health", async (req, res) => {
     const uploadsDirExists = fs.existsSync(path.join(__dirname, 'uploads'));
     
     const designsCount = await dbPool.query('SELECT COUNT(*) FROM email_designs');
+    const designsActive = await dbPool.query('SELECT COUNT(*) FROM email_designs WHERE is_active = true');
     
     res.json({
       status: "OK",
@@ -2108,7 +2167,8 @@ app.get("/api/health", async (req, res) => {
         smtp_sender: process.env.SMTP_SENDER || "❌ manquant",
         banner_image: bannerImageExists ? "✅ présent" : "⚠️ absent",
         uploads_directory: uploadsDirExists ? "✅ prêt" : "✅ créé au premier upload",
-        designs_count: parseInt(designsCount.rows[0].count)
+        designs_total: parseInt(designsCount.rows[0].count),
+        designs_active: parseInt(designsActive.rows[0].count)
       },
       tables: tablesInfo
     });
@@ -2196,7 +2256,8 @@ const startServer = async () => {
       console.log(`   • Publicité: #F9A826 (Jaune/Orange)`);
       console.log(`   • Autre: #4A5568 (Gris)`);
       console.log(`🖼️  Image base64: ${getBannerImageBase64() ? '✅ Chargée' : '⚠️ Non trouvée'}`);
-      console.log(`📧 Route /api/emails/send: ✅ Active avec design automatique`);
+      console.log(`📧 Route /api/emails/send: ✅ Active avec design automatique selon destinator_id`);
+      console.log(`🎨 Route /api/designs/debug: ✅ Active - Voir tous les designs`);
       console.log(`🎨 Route /api/designs/available: ✅ Active`);
       console.log(`🎨 Route /api/designs/test/:id: ✅ Active`);
       console.log(`🎨 Route /api/designs/create: ✅ Active`);
