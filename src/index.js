@@ -17,10 +17,25 @@ const HOST = '0.0.0.0';
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
     const uploadDir = path.join(__dirname, 'uploads');
+    const profilesDir = path.join(__dirname, 'uploads', 'profiles');
+    const attachmentsDir = path.join(__dirname, 'uploads', 'attachments');
+    
     if (!fs.existsSync(uploadDir)) {
       fs.mkdirSync(uploadDir, { recursive: true });
     }
-    cb(null, uploadDir);
+    if (!fs.existsSync(profilesDir)) {
+      fs.mkdirSync(profilesDir, { recursive: true });
+    }
+    if (!fs.existsSync(attachmentsDir)) {
+      fs.mkdirSync(attachmentsDir, { recursive: true });
+    }
+    
+    // Déterminer le dossier de destination en fonction du champ
+    if (req.path.includes('/profile')) {
+      cb(null, profilesDir);
+    } else {
+      cb(null, attachmentsDir);
+    }
   },
   filename: function (req, file, cb) {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
@@ -35,9 +50,24 @@ const upload = multer({
     fileSize: 25 * 1024 * 1024,
   },
   fileFilter: (req, file, cb) => {
-    cb(null, true);
+    if (req.path.includes('/profile')) {
+      // Pour les photos de profil, n'accepter que les images
+      const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+      if (allowedTypes.includes(file.mimetype)) {
+        cb(null, true);
+      } else {
+        cb(new Error('Format de fichier non supporté pour la photo de profil. Utilisez JPG, PNG, GIF ou WEBP.'));
+      }
+    } else {
+      // Pour les pièces jointes, accepter tous les types
+      cb(null, true);
+    }
   }
-}).array('attachments', 10);
+});
+
+// Middleware d'upload pour différents cas
+const uploadAttachments = upload.array('attachments', 10);
+const uploadProfilePicture = upload.single('profile_picture');
 
 // ===== CONFIGURATION DE LA BASE DE DONNÉES =====
 let dbPool;
@@ -141,6 +171,60 @@ const testDatabaseConnection = async () => {
   }
 };
 
+// ===== FONCTION DE NOTIFICATION DE DÉLIVRANCE =====
+const createDeliveryNotification = async (emailId, event, details = {}) => {
+  try {
+    const result = await dbPool.query(
+      `INSERT INTO email_delivery_notifications 
+       (email_id, event, timestamp, details) 
+       VALUES ($1, $2, NOW(), $3)
+       RETURNING *`,
+      [emailId, event, details]
+    );
+    
+    console.log(`📬 Notification de délivrance créée pour l'email ${emailId}: ${event}`);
+    return result.rows[0];
+  } catch (error) {
+    console.error("❌ Erreur création notification de délivrance:", error.message);
+    return null;
+  }
+};
+
+// ===== FONCTION DE MISE À JOUR DU STATUT DE L'EMAIL =====
+const updateEmailStatus = async (emailId, status, details = {}) => {
+  try {
+    const updateFields = ['status = $1'];
+    const values = [status];
+    let paramCount = 2;
+    
+    if (status === 'delivered') {
+      updateFields.push(`delivered_at = NOW()`);
+    } else if (status === 'opened') {
+      updateFields.push(`opened_at = NOW()`);
+    } else if (status === 'clicked') {
+      updateFields.push(`clicked_at = NOW()`);
+    } else if (status === 'failed') {
+      updateFields.push(`error_detail = $${paramCount}`);
+      values.push(details.error || 'Erreur inconnue');
+      paramCount++;
+    }
+    
+    updateFields.push(`updated_at = NOW()`);
+    values.push(emailId);
+    
+    const query = `UPDATE emails SET ${updateFields.join(', ')} WHERE id = $${paramCount}`;
+    
+    await dbPool.query(query, values);
+    
+    // Créer une notification pour cet événement
+    await createDeliveryNotification(emailId, status, details);
+    
+    console.log(`✅ Statut de l'email ${emailId} mis à jour: ${status}`);
+  } catch (error) {
+    console.error(`❌ Erreur mise à jour statut email ${emailId}:`, error.message);
+  }
+};
+
 // ===== CRÉATION/MISE À JOUR DES TABLES =====
 const createTables = async () => {
   try {
@@ -166,16 +250,26 @@ const createTables = async () => {
 
 const createNewTables = async () => {
   const createTablesSQL = `
-    -- Table utilisateurs
+    -- Table utilisateurs (améliorée)
     CREATE TABLE users (
       id SERIAL PRIMARY KEY,
       email VARCHAR(255) UNIQUE NOT NULL,
       password_hash VARCHAR(255) NOT NULL,
-      name VARCHAR(255),
-      created_at TIMESTAMP DEFAULT NOW()
+      nom VARCHAR(100),
+      postnom VARCHAR(100),
+      prenom VARCHAR(100),
+      date_naissance DATE,
+      profile_picture VARCHAR(255),
+      profile_picture_url TEXT,
+      phone VARCHAR(20),
+      address TEXT,
+      is_active BOOLEAN DEFAULT true,
+      last_login TIMESTAMP,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
     );
 
-    -- Table emails
+    -- Table emails (améliorée avec les statuts de délivrance)
     CREATE TABLE emails (
       id SERIAL PRIMARY KEY,
       user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
@@ -189,8 +283,24 @@ const createNewTables = async () => {
       destinator_id VARCHAR(50),
       design_id INTEGER,
       has_attachments BOOLEAN DEFAULT false,
+      delivered_at TIMESTAMP,
+      opened_at TIMESTAMP,
+      clicked_at TIMESTAMP,
+      bounced_at TIMESTAMP,
+      complained_at TIMESTAMP,
       created_at TIMESTAMP DEFAULT NOW(),
       updated_at TIMESTAMP DEFAULT NOW()
+    );
+
+    -- Table des notifications de délivrance
+    CREATE TABLE email_delivery_notifications (
+      id SERIAL PRIMARY KEY,
+      email_id INTEGER REFERENCES emails(id) ON DELETE CASCADE,
+      event VARCHAR(50) NOT NULL, -- delivered, opened, clicked, bounced, complained, failed
+      timestamp TIMESTAMP DEFAULT NOW(),
+      details JSONB DEFAULT '{}'::jsonb,
+      processed BOOLEAN DEFAULT false,
+      created_at TIMESTAMP DEFAULT NOW()
     );
 
     -- Table pièces jointes
@@ -236,7 +346,7 @@ const createNewTables = async () => {
       created_at TIMESTAMP DEFAULT NOW()
     );
 
-    -- TABLE DES DESIGNS PAR DESTINATAIRE (UNIQUEMENT POUR LES COULEURS)
+    -- TABLE DES DESIGNS PAR DESTINATAIRE
     CREATE TABLE email_designs (
       id SERIAL PRIMARY KEY,
       destinator_id VARCHAR(50) UNIQUE NOT NULL,
@@ -250,165 +360,199 @@ const createNewTables = async () => {
       updated_at TIMESTAMP DEFAULT NOW()
     );
 
+    -- Table des webhooks SendGrid
+    CREATE TABLE sendgrid_webhooks (
+      id SERIAL PRIMARY KEY,
+      event_type VARCHAR(50) NOT NULL,
+      sendgrid_message_id VARCHAR(255),
+      email VARCHAR(255),
+      timestamp BIGINT,
+      sg_event_id VARCHAR(255),
+      sg_message_id VARCHAR(255),
+      response TEXT,
+      reason TEXT,
+      status_code INTEGER,
+      attempt INTEGER,
+      user_agent TEXT,
+      ip VARCHAR(50),
+      url TEXT,
+      category VARCHAR(255),
+      raw_data JSONB,
+      processed BOOLEAN DEFAULT false,
+      created_at TIMESTAMP DEFAULT NOW()
+    );
+
     -- Créer des index
     CREATE INDEX idx_emails_user_id ON emails(user_id);
     CREATE INDEX idx_emails_folder ON emails(folder);
     CREATE INDEX idx_emails_created_at ON emails(created_at DESC);
     CREATE INDEX idx_emails_destinator_id ON emails(destinator_id);
+    CREATE INDEX idx_emails_sendgrid_message_id ON emails(sendgrid_message_id);
+    CREATE INDEX idx_delivery_notifications_email_id ON email_delivery_notifications(email_id);
+    CREATE INDEX idx_delivery_notifications_event ON email_delivery_notifications(event);
+    CREATE INDEX idx_delivery_notifications_timestamp ON email_delivery_notifications(timestamp);
     CREATE INDEX idx_attachments_email_id ON attachments(email_id);
     CREATE INDEX idx_templates_category ON email_templates(category);
     CREATE INDEX idx_templates_active ON email_templates(is_active);
     CREATE INDEX idx_template_versions_template_id ON template_versions(template_id);
     CREATE INDEX idx_email_designs_destinator_id ON email_designs(destinator_id);
+    CREATE INDEX idx_sendgrid_webhooks_message_id ON sendgrid_webhooks(sg_message_id);
+    CREATE INDEX idx_sendgrid_webhooks_event_type ON sendgrid_webhooks(event_type);
   `;
   
   await dbPool.query(createTablesSQL);
 };
 
 const updateExistingTables = async () => {
-  const checkColumns = await dbPool.query(`
+  // Vérification et mise à jour de la table users
+  const checkUserColumns = await dbPool.query(`
+    SELECT column_name 
+    FROM information_schema.columns 
+    WHERE table_name = 'users'
+  `);
+  
+  const existingUserColumns = checkUserColumns.rows.map(row => row.column_name);
+  
+  if (!existingUserColumns.includes('nom')) {
+    await dbPool.query('ALTER TABLE users ADD COLUMN nom VARCHAR(100)');
+  }
+  if (!existingUserColumns.includes('postnom')) {
+    await dbPool.query('ALTER TABLE users ADD COLUMN postnom VARCHAR(100)');
+  }
+  if (!existingUserColumns.includes('prenom')) {
+    await dbPool.query('ALTER TABLE users ADD COLUMN prenom VARCHAR(100)');
+  }
+  if (!existingUserColumns.includes('date_naissance')) {
+    await dbPool.query('ALTER TABLE users ADD COLUMN date_naissance DATE');
+  }
+  if (!existingUserColumns.includes('profile_picture')) {
+    await dbPool.query('ALTER TABLE users ADD COLUMN profile_picture VARCHAR(255)');
+  }
+  if (!existingUserColumns.includes('profile_picture_url')) {
+    await dbPool.query('ALTER TABLE users ADD COLUMN profile_picture_url TEXT');
+  }
+  if (!existingUserColumns.includes('phone')) {
+    await dbPool.query('ALTER TABLE users ADD COLUMN phone VARCHAR(20)');
+  }
+  if (!existingUserColumns.includes('address')) {
+    await dbPool.query('ALTER TABLE users ADD COLUMN address TEXT');
+  }
+  if (!existingUserColumns.includes('is_active')) {
+    await dbPool.query('ALTER TABLE users ADD COLUMN is_active BOOLEAN DEFAULT true');
+  }
+  if (!existingUserColumns.includes('last_login')) {
+    await dbPool.query('ALTER TABLE users ADD COLUMN last_login TIMESTAMP');
+  }
+  if (!existingUserColumns.includes('updated_at')) {
+    await dbPool.query('ALTER TABLE users ADD COLUMN updated_at TIMESTAMP DEFAULT NOW()');
+  }
+  
+  // Vérification et mise à jour de la table emails
+  const checkEmailColumns = await dbPool.query(`
     SELECT column_name 
     FROM information_schema.columns 
     WHERE table_name = 'emails'
   `);
   
-  const existingColumns = checkColumns.rows.map(row => row.column_name);
+  const existingEmailColumns = checkEmailColumns.rows.map(row => row.column_name);
   
-  if (!existingColumns.includes('folder')) {
+  if (!existingEmailColumns.includes('folder')) {
     await dbPool.query('ALTER TABLE emails ADD COLUMN folder VARCHAR(50) DEFAULT \'inbox\'');
   }
-  
-  if (!existingColumns.includes('updated_at')) {
+  if (!existingEmailColumns.includes('updated_at')) {
     await dbPool.query('ALTER TABLE emails ADD COLUMN updated_at TIMESTAMP DEFAULT NOW()');
   }
-  
-  if (!existingColumns.includes('destinator_id')) {
+  if (!existingEmailColumns.includes('destinator_id')) {
     await dbPool.query('ALTER TABLE emails ADD COLUMN destinator_id VARCHAR(50)');
   }
-  
-  if (!existingColumns.includes('design_id')) {
+  if (!existingEmailColumns.includes('design_id')) {
     await dbPool.query('ALTER TABLE emails ADD COLUMN design_id INTEGER');
   }
-  
-  if (!existingColumns.includes('has_attachments')) {
+  if (!existingEmailColumns.includes('has_attachments')) {
     await dbPool.query('ALTER TABLE emails ADD COLUMN has_attachments BOOLEAN DEFAULT false');
   }
+  if (!existingEmailColumns.includes('delivered_at')) {
+    await dbPool.query('ALTER TABLE emails ADD COLUMN delivered_at TIMESTAMP');
+  }
+  if (!existingEmailColumns.includes('opened_at')) {
+    await dbPool.query('ALTER TABLE emails ADD COLUMN opened_at TIMESTAMP');
+  }
+  if (!existingEmailColumns.includes('clicked_at')) {
+    await dbPool.query('ALTER TABLE emails ADD COLUMN clicked_at TIMESTAMP');
+  }
+  if (!existingEmailColumns.includes('bounced_at')) {
+    await dbPool.query('ALTER TABLE emails ADD COLUMN bounced_at TIMESTAMP');
+  }
+  if (!existingEmailColumns.includes('complained_at')) {
+    await dbPool.query('ALTER TABLE emails ADD COLUMN complained_at TIMESTAMP');
+  }
   
-  const checkAttachmentsTable = await dbPool.query(`
+  // Vérification de la table email_delivery_notifications
+  const checkDeliveryTable = await dbPool.query(`
     SELECT EXISTS (
       SELECT FROM information_schema.tables 
-      WHERE table_name = 'attachments'
+      WHERE table_name = 'email_delivery_notifications'
     )
   `);
   
-  if (!checkAttachmentsTable.rows[0].exists) {
+  if (!checkDeliveryTable.rows[0].exists) {
     await dbPool.query(`
-      CREATE TABLE attachments (
+      CREATE TABLE email_delivery_notifications (
         id SERIAL PRIMARY KEY,
         email_id INTEGER REFERENCES emails(id) ON DELETE CASCADE,
-        filename VARCHAR(255) NOT NULL,
-        original_filename VARCHAR(255) NOT NULL,
-        file_path TEXT NOT NULL,
-        file_url TEXT,
-        file_size BIGINT,
-        mime_type VARCHAR(255),
-        cloud_url TEXT,
-        is_uploaded BOOLEAN DEFAULT false,
+        event VARCHAR(50) NOT NULL,
+        timestamp TIMESTAMP DEFAULT NOW(),
+        details JSONB DEFAULT '{}'::jsonb,
+        processed BOOLEAN DEFAULT false,
         created_at TIMESTAMP DEFAULT NOW()
       );
       
-      CREATE INDEX idx_attachments_email_id ON attachments(email_id);
+      CREATE INDEX idx_delivery_notifications_email_id ON email_delivery_notifications(email_id);
+      CREATE INDEX idx_delivery_notifications_event ON email_delivery_notifications(event);
+      CREATE INDEX idx_delivery_notifications_timestamp ON email_delivery_notifications(timestamp);
     `);
-  } else {
-    const attachColumns = await dbPool.query(`
-      SELECT column_name 
-      FROM information_schema.columns 
-      WHERE table_name = 'attachments'
-    `);
-    
-    const existingAttachColumns = attachColumns.rows.map(row => row.column_name);
-    
-    if (!existingAttachColumns.includes('cloud_url')) {
-      await dbPool.query('ALTER TABLE attachments ADD COLUMN cloud_url TEXT');
-    }
-    
-    if (!existingAttachColumns.includes('is_uploaded')) {
-      await dbPool.query('ALTER TABLE attachments ADD COLUMN is_uploaded BOOLEAN DEFAULT false');
-    }
   }
   
-  const checkDesignsTable = await dbPool.query(`
+  // Vérification de la table sendgrid_webhooks
+  const checkWebhooksTable = await dbPool.query(`
     SELECT EXISTS (
       SELECT FROM information_schema.tables 
-      WHERE table_name = 'email_designs'
+      WHERE table_name = 'sendgrid_webhooks'
     )
   `);
   
-  if (!checkDesignsTable.rows[0].exists) {
+  if (!checkWebhooksTable.rows[0].exists) {
     await dbPool.query(`
-      CREATE TABLE email_designs (
+      CREATE TABLE sendgrid_webhooks (
         id SERIAL PRIMARY KEY,
-        destinator_id VARCHAR(50) UNIQUE NOT NULL,
-        design_name VARCHAR(100) NOT NULL,
-        template_id INTEGER REFERENCES email_templates(id) ON DELETE SET NULL,
-        is_active BOOLEAN DEFAULT true,
-        header_color VARCHAR(20) DEFAULT '#007AFF',
-        footer_color VARCHAR(20) DEFAULT '#2c3e50',
-        accent_color VARCHAR(20) DEFAULT '#007AFF',
-        created_at TIMESTAMP DEFAULT NOW(),
-        updated_at TIMESTAMP DEFAULT NOW()
+        event_type VARCHAR(50) NOT NULL,
+        sendgrid_message_id VARCHAR(255),
+        email VARCHAR(255),
+        timestamp BIGINT,
+        sg_event_id VARCHAR(255),
+        sg_message_id VARCHAR(255),
+        response TEXT,
+        reason TEXT,
+        status_code INTEGER,
+        attempt INTEGER,
+        user_agent TEXT,
+        ip VARCHAR(50),
+        url TEXT,
+        category VARCHAR(255),
+        raw_data JSONB,
+        processed BOOLEAN DEFAULT false,
+        created_at TIMESTAMP DEFAULT NOW()
       );
       
-      CREATE INDEX idx_email_designs_destinator_id ON email_designs(destinator_id);
+      CREATE INDEX idx_sendgrid_webhooks_message_id ON sendgrid_webhooks(sg_message_id);
+      CREATE INDEX idx_sendgrid_webhooks_event_type ON sendgrid_webhooks(event_type);
     `);
-  } else {
-    const designColumns = await dbPool.query(`
-      SELECT column_name 
-      FROM information_schema.columns 
-      WHERE table_name = 'email_designs'
-    `);
-    
-    const existingDesignColumns = designColumns.rows.map(row => row.column_name);
-    
-    if (!existingDesignColumns.includes('header_color')) {
-      await dbPool.query('ALTER TABLE email_designs ADD COLUMN header_color VARCHAR(20) DEFAULT \'#007AFF\'');
-    }
-    if (!existingDesignColumns.includes('footer_color')) {
-      await dbPool.query('ALTER TABLE email_designs ADD COLUMN footer_color VARCHAR(20) DEFAULT \'#2c3e50\'');
-    }
-    if (!existingDesignColumns.includes('accent_color')) {
-      await dbPool.query('ALTER TABLE email_designs ADD COLUMN accent_color VARCHAR(20) DEFAULT \'#007AFF\'');
-    }
-  }
-  
-  const checkIndexes = await dbPool.query(`
-    SELECT indexname 
-    FROM pg_indexes 
-    WHERE tablename = 'emails'
-  `);
-  
-  const existingIndexes = checkIndexes.rows.map(row => row.indexname);
-  
-  if (!existingIndexes.some(idx => idx.includes('idx_emails_user_id'))) {
-    await dbPool.query('CREATE INDEX IF NOT EXISTS idx_emails_user_id ON emails(user_id)');
-  }
-  
-  if (!existingIndexes.some(idx => idx.includes('idx_emails_folder'))) {
-    await dbPool.query('CREATE INDEX IF NOT EXISTS idx_emails_folder ON emails(folder)');
-  }
-  
-  if (!existingIndexes.some(idx => idx.includes('idx_emails_created_at'))) {
-    await dbPool.query('CREATE INDEX IF NOT EXISTS idx_emails_created_at ON emails(created_at DESC)');
-  }
-  
-  if (!existingIndexes.some(idx => idx.includes('idx_emails_destinator_id'))) {
-    await dbPool.query('CREATE INDEX IF NOT EXISTS idx_emails_destinator_id ON emails(destinator_id)');
   }
   
   console.log("✅ Structure de base de données vérifiée et mise à jour");
 };
 
-// ===== CRÉATION DES DESIGNS PAR DESTINATAIRE (UNIQUEMENT COULEURS) =====
+// ===== CRÉATION DES DESIGNS PAR DESTINATAIRE =====
 const createDefaultDesigns = async () => {
   try {
     const existingDesigns = await dbPool.query(
@@ -471,7 +615,7 @@ const createDefaultDesigns = async () => {
   }
 };
 
-// ===== FONCTION DE GÉNÉRATION DU HTML UNIFIÉ (CORRIGÉE) =====
+// ===== FONCTION DE GÉNÉRATION DU HTML UNIFIÉ =====
 const generateEmailHTML = (subject, message, userEmail, colors = {}) => {
   const {
     header_color = '#007AFF',
@@ -479,10 +623,8 @@ const generateEmailHTML = (subject, message, userEmail, colors = {}) => {
     accent_color = '#007AFF'
   } = colors;
 
-  // Récupérer l'image en Base64
   const bannerBase64 = getBannerImageBase64();
   
-  // Version simplifiée de l'image pour SendGrid
   const bannerHtml = bannerBase64 
     ? `<img src="${bannerBase64}" alt="Bannière Youpi." style="width: 100%; max-height: 200px; object-fit: cover; display: block; border-radius: 8px 8px 0 0;" />`
     : `<div style="background-color: ${header_color}; padding: 30px; text-align: center; color: white; font-size: 24px; font-weight: bold;">Youpi.</div>`;
@@ -553,6 +695,7 @@ const generateEmailHTML = (subject, message, userEmail, colors = {}) => {
 const sendEmailViaAPI = async (emailData) => {
   const client = getSendGridClient();
   
+  // Ajouter des métadonnées pour le tracking
   const msg = {
     to: emailData.to,
     from: {
@@ -563,6 +706,17 @@ const sendEmailViaAPI = async (emailData) => {
     text: emailData.text,
     html: emailData.html,
     replyTo: emailData.replyTo || process.env.SMTP_SENDER,
+    customArgs: {
+      email_id: emailData.emailId ? emailData.emailId.toString() : '',
+      user_id: emailData.userId ? emailData.userId.toString() : '',
+      environment: process.env.NODE_ENV || 'production'
+    },
+    trackingSettings: {
+      clickTracking: { enable: true },
+      openTracking: { enable: true },
+      subscriptionTracking: { enable: false },
+      ganalytics: { enable: false }
+    }
   };
   
   if (emailData.attachments && emailData.attachments.length > 0) {
@@ -576,24 +730,36 @@ const sendEmailViaAPI = async (emailData) => {
   
   try {
     const response = await client.send(msg);
+    const messageId = response[0].headers['x-message-id'];
+    
+    // Mettre à jour le statut de l'email à 'sent'
+    if (emailData.emailId) {
+      await updateEmailStatus(emailData.emailId, 'sent');
+    }
+    
     return {
       success: true,
-      messageId: response[0].headers['x-message-id'],
+      messageId: messageId,
       statusCode: response[0].statusCode
     };
   } catch (error) {
     console.error("❌ Erreur SendGrid:", error.message);
     if (error.response && error.response.body) {
       console.error("Détails SendGrid:", JSON.stringify(error.response.body, null, 2));
+      
+      // Mettre à jour le statut de l'email à 'failed' avec les détails d'erreur
+      if (emailData.emailId) {
+        await updateEmailStatus(emailData.emailId, 'failed', {
+          error: error.message,
+          response: error.response.body
+        });
+      }
     }
     throw error;
   }
 };
 
 // ===== FONCTIONS UTILITAIRES POUR LES PIÈCES JOINTES =====
-/**
- * Traite et sauvegarde les pièces jointes
- */
 const processAttachments = async (files, emailId) => {
   const attachments = [];
   
@@ -638,9 +804,6 @@ const processAttachments = async (files, emailId) => {
   return attachments;
 };
 
-/**
- * Récupère les pièces jointes d'un email
- */
 const getAttachmentsByEmailId = async (emailId) => {
   try {
     const tableCheck = await dbPool.query(`
@@ -696,9 +859,6 @@ const getAttachmentsByEmailId = async (emailId) => {
   }
 };
 
-/**
- * Mise à jour de la table attachments
- */
 const updateAttachmentsTable = async () => {
   try {
     const tableCheck = await dbPool.query(`
@@ -754,9 +914,6 @@ const updateAttachmentsTable = async () => {
   }
 };
 
-/**
- * Initialisation complète des tables
- */
 const initializeDatabaseTables = async () => {
   try {
     await createTables();
@@ -824,7 +981,8 @@ const authenticateToken = async (req, res, next) => {
       if (req.method === 'GET' && (
         req.path === '/' || 
         req.path.startsWith('/api/health') ||
-        req.path.startsWith('/api/setup-database')
+        req.path.startsWith('/api/setup-database') ||
+        req.path.startsWith('/api/webhooks/sendgrid')
       )) {
         return next();
       }
@@ -841,9 +999,13 @@ const authenticateToken = async (req, res, next) => {
       return res.status(401).json({ success: false, error: 'Token invalide' });
     }
     
-    const userResult = await dbPool.query('SELECT id FROM users WHERE id = $1', [userId]);
+    const userResult = await dbPool.query('SELECT id, is_active FROM users WHERE id = $1', [userId]);
     if (userResult.rows.length === 0) {
       return res.status(401).json({ success: false, error: 'Utilisateur non trouvé' });
+    }
+    
+    if (!userResult.rows[0].is_active) {
+      return res.status(403).json({ success: false, error: 'Compte désactivé' });
     }
     
     req.userId = userId;
@@ -854,12 +1016,21 @@ const authenticateToken = async (req, res, next) => {
   }
 };
 
-// ===== ROUTES D'AUTHENTIFICATION =====
+// ===== ROUTES D'AUTHENTIFICATION ET PROFIL =====
 app.post("/api/auth/register", async (req, res) => {
   try {
-    const { email, password, name } = req.body;
+    const { 
+      email, 
+      password, 
+      nom, 
+      postnom, 
+      prenom, 
+      date_naissance,
+      phone,
+      address 
+    } = req.body;
     
-    console.log("📝 Inscription:", { email, name: name || email.split('@')[0] });
+    console.log("📝 Inscription:", { email, nom, prenom });
     
     if (!email || !password) {
       return res.status(400).json({ success: false, error: "Email et mot de passe requis" });
@@ -883,8 +1054,11 @@ app.post("/api/auth/register", async (req, res) => {
     const password_hash = await bcrypt.hash(password, saltRounds);
     
     const result = await dbPool.query(
-      'INSERT INTO users (email, password_hash, name) VALUES ($1, $2, $3) RETURNING id, email, name, created_at',
-      [email, password_hash, name || email.split('@')[0]]
+      `INSERT INTO users 
+       (email, password_hash, nom, postnom, prenom, date_naissance, phone, address) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
+       RETURNING id, email, nom, postnom, prenom, date_naissance, phone, address, created_at`,
+      [email, password_hash, nom, postnom, prenom, date_naissance, phone, address]
     );
     
     const user = result.rows[0];
@@ -897,7 +1071,12 @@ app.post("/api/auth/register", async (req, res) => {
       user: {
         id: user.id,
         email: user.email,
-        name: user.name,
+        nom: user.nom,
+        postnom: user.postnom,
+        prenom: user.prenom,
+        date_naissance: user.date_naissance,
+        phone: user.phone,
+        address: user.address,
         created_at: user.created_at
       }
     });
@@ -925,10 +1104,20 @@ app.post("/api/auth/login", async (req, res) => {
     
     const user = result.rows[0];
     
+    if (!user.is_active) {
+      return res.status(403).json({ success: false, error: "Ce compte a été désactivé" });
+    }
+    
     const passwordMatch = await bcrypt.compare(password, user.password_hash);
     if (!passwordMatch) {
       return res.status(401).json({ success: false, error: "Email ou mot de passe incorrect" });
     }
+    
+    // Mettre à jour la date de dernière connexion
+    await dbPool.query(
+      'UPDATE users SET last_login = NOW() WHERE id = $1',
+      [user.id]
+    );
     
     const token = `user_${user.id}_${Date.now()}`;
     
@@ -939,8 +1128,15 @@ app.post("/api/auth/login", async (req, res) => {
       user: {
         id: user.id,
         email: user.email,
-        name: user.name,
-        created_at: user.created_at
+        nom: user.nom,
+        postnom: user.postnom,
+        prenom: user.prenom,
+        date_naissance: user.date_naissance,
+        profile_picture: user.profile_picture_url || (user.profile_picture ? `/uploads/profiles/${path.basename(user.profile_picture)}` : null),
+        phone: user.phone,
+        address: user.address,
+        created_at: user.created_at,
+        last_login: user.last_login
       }
     });
     
@@ -953,7 +1149,10 @@ app.post("/api/auth/login", async (req, res) => {
 app.get("/api/auth/profile", authenticateToken, async (req, res) => {
   try {
     const result = await dbPool.query(
-      'SELECT id, email, name, created_at FROM users WHERE id = $1',
+      `SELECT id, email, nom, postnom, prenom, date_naissance, 
+              profile_picture, profile_picture_url, phone, address, 
+              created_at, last_login, is_active 
+       FROM users WHERE id = $1`,
       [req.userId]
     );
     
@@ -961,9 +1160,24 @@ app.get("/api/auth/profile", authenticateToken, async (req, res) => {
       return res.status(404).json({ success: false, error: "Utilisateur non trouvé" });
     }
     
+    const user = result.rows[0];
+    
     res.json({
       success: true,
-      user: result.rows[0]
+      user: {
+        id: user.id,
+        email: user.email,
+        nom: user.nom,
+        postnom: user.postnom,
+        prenom: user.prenom,
+        date_naissance: user.date_naissance,
+        profile_picture: user.profile_picture_url || (user.profile_picture ? `/uploads/profiles/${path.basename(user.profile_picture)}` : null),
+        phone: user.phone,
+        address: user.address,
+        created_at: user.created_at,
+        last_login: user.last_login,
+        is_active: user.is_active
+      }
     });
     
   } catch (error) {
@@ -972,62 +1186,327 @@ app.get("/api/auth/profile", authenticateToken, async (req, res) => {
   }
 });
 
-/**
- * ROUTE DE MAINTENANCE - Répare les tables et les données
- */
-app.post("/api/maintenance/fix-attachments", authenticateToken, async (req, res) => {
+app.put("/api/auth/profile", authenticateToken, async (req, res) => {
   try {
-    const userResult = await dbPool.query('SELECT id FROM users WHERE id = $1', [req.userId]);
-    if (userResult.rows.length === 0) {
-      return res.status(403).json({ success: false, error: "Accès non autorisé" });
+    const { 
+      nom, 
+      postnom, 
+      prenom, 
+      date_naissance,
+      phone,
+      address 
+    } = req.body;
+    
+    const updates = [];
+    const values = [];
+    let paramCount = 1;
+    
+    if (nom !== undefined) {
+      updates.push(`nom = $${paramCount}`);
+      values.push(nom);
+      paramCount++;
     }
-
-    const results = [];
-    
-    const columnsCheck = await dbPool.query(`
-      SELECT column_name 
-      FROM information_schema.columns 
-      WHERE table_name = 'attachments'
-    `);
-    
-    const existingColumns = columnsCheck.rows.map(row => row.column_name);
-    
-    if (!existingColumns.includes('original_filename')) {
-      await dbPool.query(`
-        ALTER TABLE attachments 
-        ADD COLUMN original_filename VARCHAR(255);
-      `);
-      results.push("✅ Colonne 'original_filename' ajoutée");
+    if (postnom !== undefined) {
+      updates.push(`postnom = $${paramCount}`);
+      values.push(postnom);
+      paramCount++;
+    }
+    if (prenom !== undefined) {
+      updates.push(`prenom = $${paramCount}`);
+      values.push(prenom);
+      paramCount++;
+    }
+    if (date_naissance !== undefined) {
+      updates.push(`date_naissance = $${paramCount}`);
+      values.push(date_naissance);
+      paramCount++;
+    }
+    if (phone !== undefined) {
+      updates.push(`phone = $${paramCount}`);
+      values.push(phone);
+      paramCount++;
+    }
+    if (address !== undefined) {
+      updates.push(`address = $${paramCount}`);
+      values.push(address);
+      paramCount++;
     }
     
-    const updateResult = await dbPool.query(`
-      UPDATE attachments 
-      SET original_filename = filename 
-      WHERE original_filename IS NULL AND filename IS NOT NULL;
-    `);
-    results.push(`✅ ${updateResult.rowCount} enregistrements mis à jour`);
+    updates.push(`updated_at = NOW()`);
+    values.push(req.userId);
     
-    await dbPool.query(`
-      CREATE INDEX IF NOT EXISTS idx_attachments_email_id 
-      ON attachments(email_id);
-    `);
-    results.push("✅ Index vérifié");
+    if (updates.length === 0) {
+      return res.status(400).json({ success: false, error: "Aucune donnée à mettre à jour" });
+    }
+    
+    const query = `UPDATE users SET ${updates.join(', ')} WHERE id = $${paramCount} RETURNING id, email, nom, postnom, prenom, date_naissance, phone, address, profile_picture_url`;
+    
+    const result = await dbPool.query(query, values);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: "Utilisateur non trouvé" });
+    }
+    
+    const user = result.rows[0];
     
     res.json({
       success: true,
-      message: "Maintenance terminée",
-      results
+      message: "Profil mis à jour avec succès",
+      user: {
+        id: user.id,
+        email: user.email,
+        nom: user.nom,
+        postnom: user.postnom,
+        prenom: user.prenom,
+        date_naissance: user.date_naissance,
+        profile_picture: user.profile_picture_url,
+        phone: user.phone,
+        address: user.address
+      }
     });
     
   } catch (error) {
-    console.error("❌ Erreur maintenance:", error);
+    console.error("❌ Erreur mise à jour profil:", error);
+    res.status(500).json({ success: false, error: "Erreur serveur" });
+  }
+});
+
+app.post("/api/auth/profile/picture", authenticateToken, (req, res) => {
+  uploadProfilePicture(req, res, async (err) => {
+    if (err) {
+      console.error("❌ Erreur upload photo de profil:", err);
+      return res.status(400).json({
+        success: false,
+        error: "Erreur lors de l'upload de la photo",
+        details: err.message
+      });
+    }
+    
+    try {
+      if (!req.file) {
+        return res.status(400).json({ success: false, error: "Aucun fichier fourni" });
+      }
+      
+      const filePath = req.file.path;
+      const fileUrl = `/uploads/profiles/${req.file.filename}`;
+      
+      await dbPool.query(
+        `UPDATE users 
+         SET profile_picture = $1, profile_picture_url = $2, updated_at = NOW() 
+         WHERE id = $3`,
+        [filePath, fileUrl, req.userId]
+      );
+      
+      console.log(`📸 Photo de profil mise à jour pour l'utilisateur ${req.userId}`);
+      
+      res.json({
+        success: true,
+        message: "Photo de profil mise à jour avec succès",
+        profile_picture: fileUrl
+      });
+      
+    } catch (error) {
+      console.error("❌ Erreur sauvegarde photo de profil:", error);
+      res.status(500).json({ success: false, error: "Erreur serveur" });
+    }
+  });
+});
+
+app.post("/api/auth/change-password", authenticateToken, async (req, res) => {
+  try {
+    const { current_password, new_password } = req.body;
+    
+    if (!current_password || !new_password) {
+      return res.status(400).json({ 
+        success: false, 
+        error: "Mot de passe actuel et nouveau mot de passe requis" 
+      });
+    }
+    
+    if (new_password.length < 6) {
+      return res.status(400).json({ 
+        success: false, 
+        error: "Le nouveau mot de passe doit contenir au moins 6 caractères" 
+      });
+    }
+    
+    const userResult = await dbPool.query(
+      'SELECT password_hash FROM users WHERE id = $1',
+      [req.userId]
+    );
+    
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ success: false, error: "Utilisateur non trouvé" });
+    }
+    
+    const passwordMatch = await bcrypt.compare(current_password, userResult.rows[0].password_hash);
+    if (!passwordMatch) {
+      return res.status(401).json({ success: false, error: "Mot de passe actuel incorrect" });
+    }
+    
+    const saltRounds = 10;
+    const newPasswordHash = await bcrypt.hash(new_password, saltRounds);
+    
+    await dbPool.query(
+      'UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2',
+      [newPasswordHash, req.userId]
+    );
+    
+    res.json({
+      success: true,
+      message: "Mot de passe modifié avec succès"
+    });
+    
+  } catch (error) {
+    console.error("❌ Erreur changement mot de passe:", error);
+    res.status(500).json({ success: false, error: "Erreur serveur" });
+  }
+});
+
+// ===== WEBHOOK POUR LES NOTIFICATIONS SENDGRID =====
+app.post("/api/webhooks/sendgrid", express.json({ verify: (req, res, buf) => { req.rawBody = buf; } }), async (req, res) => {
+  try {
+    console.log("📬 Webhook SendGrid reçu");
+    
+    const events = Array.isArray(req.body) ? req.body : [req.body];
+    
+    for (const event of events) {
+      // Sauvegarder l'événement brut
+      const webhookResult = await dbPool.query(
+        `INSERT INTO sendgrid_webhooks 
+         (event_type, sendgrid_message_id, email, timestamp, sg_event_id, sg_message_id, 
+          response, reason, status_code, attempt, user_agent, ip, url, category, raw_data)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+         RETURNING id`,
+        [
+          event.event,
+          event.message_id,
+          event.email,
+          event.timestamp,
+          event.sg_event_id,
+          event.sg_message_id,
+          event.response,
+          event.reason,
+          event.status,
+          event.attempt,
+          event.useragent,
+          event.ip,
+          event.url,
+          event.category,
+          event
+        ]
+      );
+      
+      // Rechercher l'email correspondant dans notre base
+      let emailId = null;
+      
+      if (event.message_id) {
+        const emailResult = await dbPool.query(
+          'SELECT id FROM emails WHERE sendgrid_message_id = $1',
+          [event.message_id]
+        );
+        if (emailResult.rows.length > 0) {
+          emailId = emailResult.rows[0].id;
+        }
+      }
+      
+      // Mettre à jour le statut de l'email en fonction de l'événement
+      if (emailId) {
+        let status = null;
+        let details = { webhook_id: webhookResult.rows[0].id };
+        
+        switch (event.event) {
+          case 'delivered':
+            status = 'delivered';
+            details.timestamp = event.timestamp;
+            break;
+          case 'open':
+            status = 'opened';
+            details.user_agent = event.useragent;
+            details.ip = event.ip;
+            break;
+          case 'click':
+            status = 'clicked';
+            details.url = event.url;
+            details.user_agent = event.useragent;
+            details.ip = event.ip;
+            break;
+          case 'bounce':
+            status = 'bounced';
+            details.reason = event.reason;
+            details.status = event.status;
+            break;
+          case 'dropped':
+            status = 'failed';
+            details.reason = event.reason;
+            break;
+          case 'spamreport':
+            status = 'complained';
+            break;
+          case 'unsubscribe':
+            status = 'unsubscribed';
+            break;
+          case 'group_unsubscribe':
+            status = 'unsubscribed';
+            break;
+          case 'group_resubscribe':
+            status = 'resubscribed';
+            break;
+        }
+        
+        if (status) {
+          await updateEmailStatus(emailId, status, details);
+        }
+      }
+      
+      console.log(`✅ Événement SendGrid traité: ${event.event} pour ${event.email}`);
+    }
+    
+    res.status(200).json({ received: true });
+    
+  } catch (error) {
+    console.error("❌ Erreur traitement webhook SendGrid:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== ROUTE POUR RÉCUPÉRER LES NOTIFICATIONS D'UN EMAIL =====
+app.get("/api/emails/:id/notifications", authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Vérifier que l'email appartient bien à l'utilisateur
+    const emailCheck = await dbPool.query(
+      'SELECT id FROM emails WHERE id = $1 AND user_id = $2',
+      [id, req.userId]
+    );
+    
+    if (emailCheck.rows.length === 0) {
+      return res.status(404).json({ success: false, error: "Email non trouvé" });
+    }
+    
+    const notifications = await dbPool.query(
+      `SELECT * FROM email_delivery_notifications 
+       WHERE email_id = $1 
+       ORDER BY timestamp DESC`,
+      [id]
+    );
+    
+    res.json({
+      success: true,
+      count: notifications.rows.length,
+      notifications: notifications.rows
+    });
+    
+  } catch (error) {
+    console.error("❌ Erreur récupération notifications:", error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
 // ===== ROUTE PRINCIPALE D'ENVOI D'EMAIL =====
 app.post("/api/emails/send", authenticateToken, (req, res) => {
-  upload(req, res, async (err) => {
+  uploadAttachments(req, res, async (err) => {
     const startTime = Date.now();
     const requestId = req.headers['x-request-id'] || Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
     
@@ -1057,13 +1536,14 @@ app.post("/api/emails/send", authenticateToken, (req, res) => {
       console.log(`📤 Envoi email de user ${user_id} à ${to} [design: ${destinator_id}]`);
       console.log(`📎 ${files.length} pièce(s) jointe(s) reçue(s)`);
       
-      const userResult = await dbPool.query('SELECT email FROM users WHERE id = $1', [user_id]);
+      const userResult = await dbPool.query('SELECT email, nom, prenom FROM users WHERE id = $1', [user_id]);
       if (userResult.rows.length === 0) {
         return res.status(404).json({ success: false, error: "Utilisateur non trouvé" });
       }
       const userEmail = userResult.rows[0].email;
+      const userName = [userResult.rows[0].prenom, userResult.rows[0].nom].filter(Boolean).join(' ') || 'Youpi.';
       
-      // ===== RECHERCHE DES COULEURS DU DESIGN =====
+      // RECHERCHE DES COULEURS DU DESIGN
       let designColors = {
         header_color: '#007AFF',
         footer_color: '#2c3e50',
@@ -1097,10 +1577,10 @@ app.post("/api/emails/send", authenticateToken, (req, res) => {
         console.error("⚠️ Erreur récupération design:", designError.message);
       }
       
-      // ===== GÉNÉRATION DU HTML UNIFIÉ (AVEC LA VERSION CORRIGÉE) =====
+      // GÉNÉRATION DU HTML
       const finalHTML = generateEmailHTML(subject, message, userEmail, designColors);
       
-      // ===== SAUVEGARDE EN BASE =====
+      // SAUVEGARDE EN BASE
       const emailResult = await dbPool.query(
         `INSERT INTO emails 
          (user_id, to_email, subject, content, status, folder, destinator_id, design_id, has_attachments) 
@@ -1111,22 +1591,24 @@ app.post("/api/emails/send", authenticateToken, (req, res) => {
       
       const emailId = emailResult.rows[0].id;
       
-      // ===== TRAITEMENT DES PIÈCES JOINTES =====
+      // TRAITEMENT DES PIÈCES JOINTES
       let sendGridAttachments = [];
       if (files.length > 0) {
         sendGridAttachments = await processAttachments(files, emailId);
         console.log(`✅ ${sendGridAttachments.length} pièce(s) jointe(s) préparée(s) pour SendGrid`);
       }
       
-      // ===== PRÉPARATION ET ENVOI =====
+      // PRÉPARATION ET ENVOI
       const emailData = {
         to: to,
         subject: subject,
         text: message,
         html: finalHTML,
         replyTo: userEmail,
-        senderName: 'Youpi.',
-        attachments: sendGridAttachments
+        senderName: userName,
+        attachments: sendGridAttachments,
+        emailId: emailId,
+        userId: user_id
       };
       
       console.log("⏳ Envoi via SendGrid...");
@@ -1138,10 +1620,14 @@ app.post("/api/emails/send", authenticateToken, (req, res) => {
       const result = await sendEmailViaAPI(emailData);
       const sendTime = Date.now() - sendStartTime;
       
+      // Mettre à jour le message_id SendGrid
       await dbPool.query(
-        `UPDATE emails SET status = 'sent', sendgrid_message_id = $1 WHERE id = $2`,
+        `UPDATE emails SET sendgrid_message_id = $1 WHERE id = $2`,
         [result.messageId, emailId]
       );
+      
+      // Créer une notification initiale
+      await createDeliveryNotification(emailId, 'sent', { message_id: result.messageId });
       
       console.log(`✅ EMAIL ENVOYÉ AVEC SUCCÈS en ${sendTime}ms`);
       console.log(`📧 Message ID: ${result.messageId || 'N/A'}`);
@@ -1179,10 +1665,11 @@ app.post("/api/emails/send", authenticateToken, (req, res) => {
       
       if (req.userId && req.body) {
         try {
-          await dbPool.query(
+          const emailResult = await dbPool.query(
             `INSERT INTO emails 
              (user_id, to_email, subject, content, status, error_detail, folder, destinator_id, has_attachments) 
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+             RETURNING id`,
             [
               req.userId, 
               req.body.to, 
@@ -1195,6 +1682,10 @@ app.post("/api/emails/send", authenticateToken, (req, res) => {
               req.files?.length > 0 || false
             ]
           );
+          
+          // Créer une notification d'échec
+          await createDeliveryNotification(emailResult.rows[0].id, 'failed', { error: error.message });
+          
         } catch (dbError) {
           console.error("❌ Erreur sauvegarde email échoué:", dbError);
         }
@@ -1451,9 +1942,14 @@ app.get("/api/emails", authenticateToken, async (req, res) => {
     
     const result = await dbPool.query(query, params);
     
-    const emailsWithAttachments = await Promise.all(
+    const emailsWithDetails = await Promise.all(
       result.rows.map(async (email) => {
         const attachments = await getAttachmentsByEmailId(email.id);
+        const notifications = await dbPool.query(
+          'SELECT * FROM email_delivery_notifications WHERE email_id = $1 ORDER BY timestamp DESC',
+          [email.id]
+        );
+        
         return {
           id: email.id,
           to: email.to_email,
@@ -1464,6 +1960,11 @@ app.get("/api/emails", authenticateToken, async (req, res) => {
           destinator_id: email.destinator_id,
           design_id: email.design_id,
           has_attachments: email.has_attachments || attachments.length > 0,
+          delivered_at: email.delivered_at,
+          opened_at: email.opened_at,
+          clicked_at: email.clicked_at,
+          bounced_at: email.bounced_at,
+          complained_at: email.complained_at,
           attachments: attachments.map(att => ({
             id: att.id,
             filename: att.original_filename,
@@ -1472,6 +1973,7 @@ app.get("/api/emails", authenticateToken, async (req, res) => {
             url: att.cloud_url || `/api/attachments/${att.id}/download`,
             created_at: att.created_at
           })),
+          notifications: notifications.rows,
           createdAt: email.created_at,
           updatedAt: email.updated_at || email.created_at,
           errorDetail: email.error_detail,
@@ -1486,7 +1988,7 @@ app.get("/api/emails", authenticateToken, async (req, res) => {
       page: parseInt(page),
       limit: parseInt(limit),
       totalPages: Math.ceil(total / parseInt(limit)),
-      emails: emailsWithAttachments
+      emails: emailsWithDetails
     });
     
   } catch (error) {
@@ -1515,6 +2017,10 @@ app.get("/api/emails/:id", authenticateToken, async (req, res) => {
     
     const email = result.rows[0];
     const attachments = await getAttachmentsByEmailId(email.id);
+    const notifications = await dbPool.query(
+      'SELECT * FROM email_delivery_notifications WHERE email_id = $1 ORDER BY timestamp DESC',
+      [id]
+    );
     
     res.json({
       success: true,
@@ -1528,6 +2034,11 @@ app.get("/api/emails/:id", authenticateToken, async (req, res) => {
         destinator_id: email.destinator_id,
         design_id: email.design_id,
         has_attachments: email.has_attachments || attachments.length > 0,
+        delivered_at: email.delivered_at,
+        opened_at: email.opened_at,
+        clicked_at: email.clicked_at,
+        bounced_at: email.bounced_at,
+        complained_at: email.complained_at,
         attachments: attachments.map(att => ({
           id: att.id,
           filename: att.original_filename,
@@ -1536,6 +2047,7 @@ app.get("/api/emails/:id", authenticateToken, async (req, res) => {
           url: att.cloud_url || `/api/attachments/${att.id}/download`,
           created_at: att.created_at
         })),
+        notifications: notifications.rows,
         createdAt: email.created_at,
         updatedAt: email.updated_at || email.created_at,
         errorDetail: email.error_detail,
@@ -1587,19 +2099,21 @@ app.get("/api/attachments/:id/download", authenticateToken, async (req, res) => 
 // ===== ROUTES UTILITAIRES =====
 app.get("/", (req, res) => {
   res.json({
-    message: "Youpi. API - Design Unifié",
+    message: "Youpi. API - Design Unifié avec Gestion de Profil et Notifications",
     status: "online",
-    version: "8.1.0",
+    version: "9.0.0",
     timestamp: new Date().toISOString(),
     features: [
       "PostgreSQL",
-      "SendGrid API",
-      "Authentification",
+      "SendGrid API avec webhooks",
+      "Authentification complète",
+      "Gestion de profil utilisateur (nom, postnom, prénom, date naissance, photo)",
       "Design unifié - Même structure HTML pour tous",
       "Couleurs personnalisables par destinataire",
-      "Image bannière en Base64 (format table HTML)",
+      "Image bannière en Base64",
       "Texte justifié",
-      "Pièces jointes avec SendGrid"
+      "Pièces jointes avec SendGrid",
+      "Notifications de délivrance d'email (delivered, opened, clicked, bounced, failed)"
     ],
     designs_disponibles: {
       marketing: { header: "#FF6B6B", accent: "#FF6B6B", description: "Orange/Rouge" },
@@ -1625,9 +2139,12 @@ app.get("/api/health", async (req, res) => {
     
     const bannerImageExists = fs.existsSync(path.join(__dirname, 'assets', 'banner-youpi.png'));
     const uploadsDirExists = fs.existsSync(path.join(__dirname, 'uploads'));
+    const profilesDirExists = fs.existsSync(path.join(__dirname, 'uploads', 'profiles'));
     
     const designsCount = await dbPool.query('SELECT COUNT(*) FROM email_designs');
     const attachmentsCount = await dbPool.query('SELECT COUNT(*) FROM attachments');
+    const usersCount = await dbPool.query('SELECT COUNT(*) FROM users');
+    const notificationsCount = await dbPool.query('SELECT COUNT(*) FROM email_delivery_notifications');
     
     res.json({
       status: "OK",
@@ -1637,10 +2154,14 @@ app.get("/api/health", async (req, res) => {
         database: dbStatus,
         sendgrid: process.env.SENDGRID_API_KEY ? "✅ configuré" : "❌ manquant",
         smtp_sender: process.env.SMTP_SENDER || "❌ manquant",
-        banner_image: bannerImageExists ? "✅ présent (format table HTML)" : "⚠️ absent (fond coloré)",
+        webhooks_url: "/api/webhooks/sendgrid",
+        banner_image: bannerImageExists ? "✅ présent" : "⚠️ absent (fond coloré)",
         uploads_directory: uploadsDirExists ? "✅ prêt" : "✅ créé au premier upload",
+        profiles_directory: profilesDirExists ? "✅ prêt" : "✅ créé au premier upload",
         designs_total: parseInt(designsCount.rows[0].count),
-        attachments_total: parseInt(attachmentsCount.rows[0].count)
+        attachments_total: parseInt(attachmentsCount.rows[0].count),
+        users_total: parseInt(usersCount.rows[0].count),
+        notifications_total: parseInt(notificationsCount.rows[0].count)
       }
     });
   } catch (error) {
@@ -1661,6 +2182,12 @@ app.get("/api/setup-database", async (req, res) => {
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
+});
+
+// Route pour tester les webhooks (à utiliser avec un outil comme ngrok)
+app.post("/api/test-webhook", express.json(), async (req, res) => {
+  console.log("🧪 Test webhook reçu:", req.body);
+  res.json({ received: true, data: req.body });
 });
 
 // Gestion 404
@@ -1721,25 +2248,56 @@ const startServer = async () => {
     
     const server = app.listen(PORT, HOST, async () => {
       console.log("\n" + "=".repeat(70));
-      console.log("🚀 YOUPI. API - DESIGN UNIFIÉ");
+      console.log("🚀 YOUPI. API - GESTION DE PROFIL ET NOTIFICATIONS");
       console.log("=".repeat(70));
       console.log(`🌐 URL: https://system-mail-youpi-backend.onrender.com`);
       console.log(`🔧 Port: ${PORT}`);
+      console.log(`\n👤 Gestion de profil:`);
+      console.log(`   • Inscription avec nom, postnom, prénom, date naissance`);
+      console.log(`   • Photo de profil (upload)`);
+      console.log(`   • Modification du profil`);
+      console.log(`   • Changement de mot de passe`);
+      console.log(`\n📬 Notifications de délivrance:`);
+      console.log(`   • Webhook SendGrid configuré: /api/webhooks/sendgrid`);
+      console.log(`   • Tracking des ouvertures, clics, délivrances`);
+      console.log(`   • Historique des événements par email`);
       console.log(`\n🎨 Designs disponibles:`);
       console.log(`   • Marketing: En-tête #FF6B6B`);
       console.log(`   • Partenaire: En-tête #0F4C81`);
       console.log(`   • Publicité: En-tête #F9A826`);
       console.log(`   • Autre: En-tête #007AFF`);
-      console.log(`\n🖼️  Bannière: ${getBannerImageBase64() ? '✅ Image chargée (format table HTML)' : '⚠️ Fond coloré'}`);
+      console.log(`\n🖼️  Bannière: ${getBannerImageBase64() ? '✅ Image chargée' : '⚠️ Fond coloré'}`);
+      
+      try {
+        const usersResult = await dbPool.query('SELECT COUNT(*) FROM users');
+        const usersCount = usersResult.rows[0].count;
+        console.log(`👥 Utilisateurs: ${usersCount}`);
+      } catch (error) {
+        console.log(`👥 Utilisateurs: 0 - table non créée`);
+      }
       
       try {
         const attachmentsResult = await dbPool.query('SELECT COUNT(*) FROM attachments');
         const attachmentsCount = attachmentsResult.rows[0].count;
-        console.log(`📎 Gestion pièces jointes: ✅ Active (${attachmentsCount} fichiers)`);
+        console.log(`📎 Pièces jointes: ${attachmentsCount} fichiers`);
       } catch (error) {
-        console.log(`📎 Gestion pièces jointes: ✅ Active (0 fichiers - table non créée)`);
+        console.log(`📎 Pièces jointes: 0 - table non créée`);
       }
       
+      try {
+        const notificationsResult = await dbPool.query('SELECT COUNT(*) FROM email_delivery_notifications');
+        const notificationsCount = notificationsResult.rows[0].count;
+        console.log(`📬 Notifications: ${notificationsCount} événements`);
+      } catch (error) {
+        console.log(`📬 Notifications: 0 - table non créée`);
+      }
+      
+      console.log("=".repeat(70));
+      console.log("\n🔔 Pour configurer les webhooks SendGrid:");
+      console.log("   1. Allez dans SendGrid Dashboard > Settings > Mail Settings");
+      console.log("   2. Activez 'Event Webhook'");
+      console.log(`   3. URL: https://votre-domaine.com/api/webhooks/sendgrid`);
+      console.log("   4. Sélectionnez les événements: delivered, opened, clicked, bounced, dropped, spamreport");
       console.log("=".repeat(70));
     });
     
