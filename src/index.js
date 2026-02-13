@@ -1827,7 +1827,7 @@ const startServer = async () => {
   try {
     await initializeServices();
     
-    const server = app.listen(PORT, HOST, () => {
+    const server = app.listen(PORT, HOST, async () => {  // ⚠️ AJOUTEZ 'async' ICI
       console.log("\n" + "=".repeat(70));
       console.log("🚀 YOUPI. API - DESIGN UNIFIÉ");
       console.log("=".repeat(70));
@@ -1839,9 +1839,18 @@ const startServer = async () => {
       console.log(`   • Publicité: En-tête #F9A826`);
       console.log(`   • Autre: En-tête #007AFF`);
       console.log(`\n🖼️  Bannière: ${getBannerImageBase64() ? '✅ Image chargée' : '⚠️ Fond coloré'}`);
-      console.log(`📎 Gestion pièces jointes: ✅ Active (${await dbPool.query('SELECT COUNT(*) FROM attachments').then(r => r.rows[0].count)} fichiers)`);
+      
+      try {
+        const attachmentsResult = await dbPool.query('SELECT COUNT(*) FROM attachments');
+        const attachmentsCount = attachmentsResult.rows[0].count;
+        console.log(`📎 Gestion pièces jointes: ✅ Active (${attachmentsCount} fichiers)`);
+      } catch (error) {
+        console.log(`📎 Gestion pièces jointes: ✅ Active (0 fichiers - table non créée)`);
+      }
+      
       console.log("=".repeat(70));
     });
+    
     
     const shutdown = (signal) => {
       console.log(`\n🛑 Signal ${signal} reçu - Arrêt du serveur...`);
