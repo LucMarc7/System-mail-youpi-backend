@@ -83,191 +83,13 @@ const getBannerImageBase64 = () => {
       console.log(`🖼️ Image chargée: ${imagePath} (${Math.round(imageBuffer.length / 1024)} KB)`);
       return `data:${mimeType};base64,${base64Image}`;
     } else {
-      console.log(`⚠️ Image non trouvée: ${imagePath}, utilisation du titre par défaut`);
+      console.log(`⚠️ Image non trouvée: ${imagePath}, utilisation du fond coloré par défaut`);
       return null;
     }
   } catch (error) {
     console.error("❌ Erreur chargement image:", error.message);
     return null;
   }
-};
-
-// ===== FONCTION POUR GÉNÉRER LE HTML AVEC LE DESIGN YOUPI MAIL =====
-const generateYoupiMailHTML = (subject, message, userEmail, bannerBase64, design = {}) => {
-  // Définir les couleurs selon le design ou utiliser les valeurs par défaut
-  const colors = {
-    primary: design.primary_color || '#007AFF',
-    secondary: design.secondary_color || '#2c3e50',
-    gradient_start: design.gradient_start || '#007AFF',
-    gradient_end: design.gradient_end || '#0056b3',
-    text_light: '#ffffff',
-    text_dark: '#333333',
-    text_muted: '#555555',
-    border_light: '#eeeeee',
-    background_light: '#f9f9f9',
-    copyright: '#95a5a6',
-    divider: '#34495e'
-  };
-
-  // Générer la balise image de bannière
-  const bannerHtml = bannerBase64 
-    ? `<img src="${bannerBase64}" alt="Bannière Youpi Mail" class="banner">`
-    : `<div style="background: linear-gradient(135deg, ${colors.gradient_start} 0%, ${colors.gradient_end} 100%); padding: 30px; text-align: center; border-radius: 8px 8px 0 0;">
-        <h1 style="color: ${colors.text_light}; margin: 0; font-size: 28px;">✉️ Youpi Mail</h1>
-       </div>`;
-
-  return `<!DOCTYPE html>
-<html lang="fr">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${subject}</title>
-    <style>
-        body {
-            font-family: 'Arial', sans-serif;
-            margin: 0;
-            padding: 0;
-            background-color: #f5f5f5;
-            line-height: 1.6;
-        }
-        .email-container {
-            max-width: 600px;
-            margin: 0 auto;
-            background-color: #ffffff;
-            border-radius: 10px;
-            overflow: hidden;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-        }
-        .header {
-            background-color: ${colors.primary};
-            padding: 0;
-            text-align: center;
-        }
-        .banner {
-            width: 100%;
-            max-height: 200px;
-            object-fit: cover;
-            display: block;
-        }
-        .content {
-            padding: 30px;
-            color: ${colors.text_dark};
-        }
-        .subject {
-            color: ${colors.primary};
-            font-size: 24px;
-            margin-top: 0;
-            margin-bottom: 20px;
-            font-weight: bold;
-        }
-        .message {
-            color: ${colors.text_muted};
-            font-size: 16px;
-            line-height: 1.8;
-            white-space: pre-line;
-        }
-        .divider {
-            height: 1px;
-            background-color: ${colors.border_light};
-            margin: 30px 0;
-        }
-        .sender-info {
-            background-color: ${colors.background_light};
-            padding: 20px;
-            border-radius: 8px;
-            border-left: 4px solid ${colors.primary};
-            margin-top: 30px;
-        }
-        .footer {
-            background-color: ${colors.secondary};
-            color: ${colors.text_light};
-            padding: 25px;
-            text-align: center;
-        }
-        .contact-info {
-            margin-bottom: 15px;
-            font-size: 14px;
-        }
-        .phone-numbers {
-            font-weight: bold;
-            color: ${colors.primary};
-            margin: 10px 0;
-            line-height: 1.8;
-        }
-        .copyright {
-            font-size: 12px;
-            color: ${colors.copyright};
-            margin-top: 15px;
-            border-top: 1px solid ${colors.divider};
-            padding-top: 15px;
-        }
-        .youpi-badge {
-            display: inline-block;
-            background-color: ${colors.primary};
-            color: white;
-            padding: 5px 15px;
-            border-radius: 20px;
-            font-size: 12px;
-            margin-top: 10px;
-        }
-        @media (max-width: 600px) {
-            .content {
-                padding: 20px;
-            }
-            .subject {
-                font-size: 20px;
-            }
-            .message {
-                font-size: 14px;
-            }
-            .phone-numbers {
-                font-size: 14px;
-            }
-        }
-    </style>
-</head>
-<body>
-    <div class="email-container">
-        <!-- HEADER AVEC BANNIÈRE -->
-        <div class="header">
-            ${bannerHtml}
-        </div>
-        
-        <!-- CONTENU PRINCIPAL -->
-        <div class="content">
-            <h1 class="subject">${subject}</h1>
-            
-            <div class="message">
-                ${message.replace(/\n/g, '<br>')}
-            </div>
-            
-            <div class="divider"></div>
-            
-            <!-- INFO EXPÉDITEUR -->
-            <div class="sender-info">
-                <p><strong>Expéditeur :</strong> ${userEmail}</p>
-                <div class="youpi-badge">Envoyé via Youpi Mail</div>
-            </div>
-        </div>
-        
-        <!-- FOOTER AVEC COORDONNÉES -->
-        <div class="footer">
-            <div class="contact-info">
-                <p>Besoin d'aide ? Contactez-nous :</p>
-                <div class="phone-numbers">
-                    +243 856 163 550<br>
-                    +243 834 171 852
-                </div>
-            </div>
-            
-            <div class="copyright">
-                © ${new Date().getFullYear()} Youpi Mail. Tous droits réservés.<br>
-                <small>Service d'envoi d'emails professionnels</small>
-            </div>
-        </div>
-    </div>
-</body>
-</html>`;
 };
 
 // ===== CONFIGURATION SENDGRID API =====
@@ -414,22 +236,16 @@ const createNewTables = async () => {
       created_at TIMESTAMP DEFAULT NOW()
     );
 
-    -- TABLE DES DESIGNS PAR DESTINATAIRE
+    -- TABLE DES DESIGNS PAR DESTINATAIRE (UNIQUEMENT POUR LES COULEURS)
     CREATE TABLE email_designs (
       id SERIAL PRIMARY KEY,
       destinator_id VARCHAR(50) UNIQUE NOT NULL,
       design_name VARCHAR(100) NOT NULL,
       template_id INTEGER REFERENCES email_templates(id) ON DELETE SET NULL,
-      subject TEXT NOT NULL,
-      html_content TEXT,
-      text_content TEXT,
-      variables JSONB DEFAULT '[]'::jsonb,
-      category VARCHAR(50) DEFAULT 'destinator',
       is_active BOOLEAN DEFAULT true,
-      primary_color VARCHAR(20) DEFAULT '#007AFF',
-      secondary_color VARCHAR(20) DEFAULT '#2c3e50',
-      gradient_start VARCHAR(20) DEFAULT '#007AFF',
-      gradient_end VARCHAR(20) DEFAULT '#0056b3',
+      header_color VARCHAR(20) DEFAULT '#007AFF',
+      footer_color VARCHAR(20) DEFAULT '#2c3e50',
+      accent_color VARCHAR(20) DEFAULT '#007AFF',
       created_at TIMESTAMP DEFAULT NOW(),
       updated_at TIMESTAMP DEFAULT NOW()
     );
@@ -535,16 +351,10 @@ const updateExistingTables = async () => {
         destinator_id VARCHAR(50) UNIQUE NOT NULL,
         design_name VARCHAR(100) NOT NULL,
         template_id INTEGER REFERENCES email_templates(id) ON DELETE SET NULL,
-        subject TEXT NOT NULL,
-        html_content TEXT,
-        text_content TEXT,
-        variables JSONB DEFAULT '[]'::jsonb,
-        category VARCHAR(50) DEFAULT 'destinator',
         is_active BOOLEAN DEFAULT true,
-        primary_color VARCHAR(20) DEFAULT '#007AFF',
-        secondary_color VARCHAR(20) DEFAULT '#2c3e50',
-        gradient_start VARCHAR(20) DEFAULT '#007AFF',
-        gradient_end VARCHAR(20) DEFAULT '#0056b3',
+        header_color VARCHAR(20) DEFAULT '#007AFF',
+        footer_color VARCHAR(20) DEFAULT '#2c3e50',
+        accent_color VARCHAR(20) DEFAULT '#007AFF',
         created_at TIMESTAMP DEFAULT NOW(),
         updated_at TIMESTAMP DEFAULT NOW()
       );
@@ -560,17 +370,14 @@ const updateExistingTables = async () => {
     
     const existingDesignColumns = designColumns.rows.map(row => row.column_name);
     
-    if (!existingDesignColumns.includes('primary_color')) {
-      await dbPool.query('ALTER TABLE email_designs ADD COLUMN primary_color VARCHAR(20) DEFAULT \'#007AFF\'');
+    if (!existingDesignColumns.includes('header_color')) {
+      await dbPool.query('ALTER TABLE email_designs ADD COLUMN header_color VARCHAR(20) DEFAULT \'#007AFF\'');
     }
-    if (!existingDesignColumns.includes('secondary_color')) {
-      await dbPool.query('ALTER TABLE email_designs ADD COLUMN secondary_color VARCHAR(20) DEFAULT \'#2c3e50\'');
+    if (!existingDesignColumns.includes('footer_color')) {
+      await dbPool.query('ALTER TABLE email_designs ADD COLUMN footer_color VARCHAR(20) DEFAULT \'#2c3e50\'');
     }
-    if (!existingDesignColumns.includes('gradient_start')) {
-      await dbPool.query('ALTER TABLE email_designs ADD COLUMN gradient_start VARCHAR(20) DEFAULT \'#007AFF\'');
-    }
-    if (!existingDesignColumns.includes('gradient_end')) {
-      await dbPool.query('ALTER TABLE email_designs ADD COLUMN gradient_end VARCHAR(20) DEFAULT \'#0056b3\'');
+    if (!existingDesignColumns.includes('accent_color')) {
+      await dbPool.query('ALTER TABLE email_designs ADD COLUMN accent_color VARCHAR(20) DEFAULT \'#007AFF\'');
     }
   }
   
@@ -601,7 +408,7 @@ const updateExistingTables = async () => {
   console.log("✅ Structure de base de données vérifiée et mise à jour");
 };
 
-// ===== CRÉATION DES DESIGNS PAR DÉFAUT =====
+// ===== CRÉATION DES DESIGNS PAR DESTINATAIRE (UNIQUEMENT COULEURS) =====
 const createDefaultDesigns = async () => {
   try {
     const existingDesigns = await dbPool.query(
@@ -609,76 +416,238 @@ const createDefaultDesigns = async () => {
     );
     
     if (parseInt(existingDesigns.rows[0].count) === 0) {
-      console.log("📋 Création des designs par destinataire avec couleurs Youpi Mail...");
+      console.log("🎨 Création des designs par destinataire (couleurs uniquement)...");
       
       const defaultDesigns = [
         {
           destinator_id: 'marketing',
-          design_name: 'Design Marketing - Promotionnel',
-          primary_color: '#FF6B6B',
-          secondary_color: '#2c3e50',
-          gradient_start: '#FF6B6B',
-          gradient_end: '#FF8E53',
-          subject: '{{subject}} - Offre spéciale Youpi.',
-          category: 'marketing'
+          design_name: 'Marketing - Orange/Rouge',
+          header_color: '#FF6B6B',
+          footer_color: '#2c3e50',
+          accent_color: '#FF6B6B'
         },
         {
           destinator_id: 'partner',
-          design_name: 'Design Partenaire - Professionnel',
-          primary_color: '#0F4C81',
-          secondary_color: '#2c3e50',
-          gradient_start: '#0F4C81',
-          gradient_end: '#2C73D2',
-          subject: '{{subject}} - Partenariat Youpi.',
-          category: 'professional'
+          design_name: 'Partenaire - Bleu foncé',
+          header_color: '#0F4C81',
+          footer_color: '#2c3e50',
+          accent_color: '#0F4C81'
         },
         {
           destinator_id: 'ad',
-          design_name: 'Design Publicité - Événementiel',
-          primary_color: '#F9A826',
-          secondary_color: '#2c3e50',
-          gradient_start: '#F9A826',
-          gradient_end: '#FFB347',
-          subject: '{{subject}} - Ne manquez pas ça !',
-          category: 'advertising'
+          design_name: 'Publicité - Jaune/Orange',
+          header_color: '#F9A826',
+          footer_color: '#2c3e50',
+          accent_color: '#F9A826'
         },
         {
           destinator_id: 'other',
-          design_name: 'Design Standard - Général',
-          primary_color: '#007AFF',
-          secondary_color: '#2c3e50',
-          gradient_start: '#007AFF',
-          gradient_end: '#0056b3',
-          subject: '{{subject}}',
-          category: 'general'
+          design_name: 'Standard - Bleu',
+          header_color: '#007AFF',
+          footer_color: '#2c3e50',
+          accent_color: '#007AFF'
         }
       ];
       
       for (const design of defaultDesigns) {
         await dbPool.query(
           `INSERT INTO email_designs 
-           (destinator_id, design_name, subject, category, 
-            primary_color, secondary_color, gradient_start, gradient_end, is_active) 
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+           (destinator_id, design_name, header_color, footer_color, accent_color) 
+           VALUES ($1, $2, $3, $4, $5)`,
           [
             design.destinator_id,
             design.design_name,
-            design.subject,
-            design.category,
-            design.primary_color,
-            design.secondary_color,
-            design.gradient_start,
-            design.gradient_end,
-            true
+            design.header_color,
+            design.footer_color,
+            design.accent_color
           ]
         );
       }
       
-      console.log(`✅ ${defaultDesigns.length} designs par destinataire créés avec couleurs Youpi Mail`);
+      console.log(`✅ ${defaultDesigns.length} designs par destinataire créés avec couleurs personnalisées`);
     }
   } catch (error) {
     console.error("❌ Erreur création designs par défaut:", error.message);
   }
+};
+
+// ===== FONCTION DE GÉNÉRATION DU HTML UNIFIÉ =====
+const generateEmailHTML = (subject, message, userEmail, colors = {}) => {
+  const {
+    header_color = '#007AFF',
+    footer_color = '#2c3e50',
+    accent_color = '#007AFF'
+  } = colors;
+
+  const bannerBase64 = getBannerImageBase64();
+  
+  return `<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${subject}</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f5f5f5;
+            line-height: 1.6;
+        }
+        .email-container {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+        .header {
+            background-color: ${header_color};
+            padding: 0;
+            text-align: center;
+        }
+        .banner {
+            width: 100%;
+            max-height: 200px;
+            object-fit: cover;
+            border-radius: 8px 8px 0 0;
+            display: block;
+        }
+        .header-fallback {
+            background-color: ${header_color};
+            padding: 30px;
+            text-align: center;
+            color: white;
+            font-size: 24px;
+            font-weight: bold;
+        }
+        .content {
+            padding: 30px;
+            color: #333333;
+        }
+        .subject {
+            color: ${accent_color};
+            font-size: 24px;
+            margin-top: 0;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+        .message {
+            color: #555555;
+            font-size: 16px;
+            line-height: 1.8;
+            white-space: pre-line;
+            text-align: justify;
+        }
+        .divider {
+            height: 1px;
+            background-color: #eeeeee;
+            margin: 30px 0;
+        }
+        .sender-info {
+            background-color: #f9f9f9;
+            padding: 20px;
+            border-radius: 8px;
+            border-left: 4px solid ${accent_color};
+            margin-top: 30px;
+        }
+        .footer {
+            background-color: ${footer_color};
+            color: #ffffff;
+            padding: 25px;
+            text-align: center;
+        }
+        .contact-info {
+            margin-bottom: 15px;
+            font-size: 14px;
+        }
+        .phone-numbers {
+            font-weight: bold;
+            color: ${accent_color};
+            margin: 10px 0;
+            line-height: 1.8;
+        }
+        .copyright {
+            font-size: 12px;
+            color: #95a5a6;
+            margin-top: 15px;
+            border-top: 1px solid #34495e;
+            padding-top: 15px;
+        }
+        .youpi-badge {
+            display: inline-block;
+            background-color: ${accent_color};
+            color: white;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 12px;
+            margin-top: 10px;
+        }
+        @media (max-width: 600px) {
+            .content {
+                padding: 20px;
+            }
+            .subject {
+                font-size: 20px;
+            }
+            .message {
+                font-size: 14px;
+            }
+            .phone-numbers {
+                font-size: 14px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="email-container">
+        <!-- HEADER AVEC BANNIÈRE -->
+        <div class="header">
+            ${bannerBase64 
+                ? `<img src="${bannerBase64}" 
+                       alt="Bannière Youpi Mail" 
+                       class="banner"
+                       onerror="this.style.display='none'; this.parentElement.innerHTML='<div class=\\'header-fallback\\'>✉️ Youpi Mail</div>';">`
+                : `<div class="header-fallback">✉️ Youpi Mail</div>`
+            }
+        </div>
+        
+        <!-- CONTENU PRINCIPAL -->
+        <div class="content">
+            <h1 class="subject">${subject}</h1>
+            
+            <div class="message">
+                ${message.replace(/\n/g, '<br>')}
+            </div>
+            
+            <div class="divider"></div>
+            
+            <!-- INFO EXPÉDITEUR -->
+            <div class="sender-info">
+                <p><strong>Expéditeur :</strong> ${userEmail}</p>
+            </div>
+        </div>
+        
+        <!-- FOOTER AVEC COORDONNÉES -->
+        <div class="footer">
+            <div class="contact-info">
+                <p>Besoin d'aide ? Contactez-nous :</p>
+                <div class="phone-numbers">
+                    +243 856 163 550<br>
+                    +243 834 171 852
+                </div>
+            </div>
+            
+            <div class="copyright">
+                © ${new Date().getFullYear()} Youpi Mail. Tous droits réservés.<br>
+                <small>Envoyé via Youpi Mail</small>
+            </div>
+        </div>
+    </div>
+</body>
+</html>`;
 };
 
 // ===== FONCTION UTILITAIRE : ENVOI D'EMAIL =====
@@ -792,28 +761,6 @@ const getAttachmentsByEmailId = async (emailId) => {
   } catch (error) {
     console.error(`❌ Erreur récupération pièces jointes pour email ${emailId}:`, error.message);
     return [];
-  }
-};
-
-const deleteAttachmentsByEmailId = async (emailId) => {
-  try {
-    const attachments = await dbPool.query(
-      'SELECT file_path FROM attachments WHERE email_id = $1',
-      [emailId]
-    );
-    
-    for (const att of attachments.rows) {
-      if (att.file_path && fs.existsSync(att.file_path)) {
-        fs.unlinkSync(att.file_path);
-        console.log(`🗑️ Fichier supprimé: ${att.file_path}`);
-      }
-    }
-    
-    await dbPool.query('DELETE FROM attachments WHERE email_id = $1', [emailId]);
-    
-    console.log(`✅ Pièces jointes supprimées pour l'email ${emailId}`);
-  } catch (error) {
-    console.error(`❌ Erreur suppression pièces jointes pour email ${emailId}:`, error.message);
   }
 };
 
@@ -1026,7 +973,6 @@ app.post("/api/emails/send", authenticateToken, (req, res) => {
     const requestId = req.headers['x-request-id'] || Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
     
     console.log(`\n📧 ENVOI EMAIL [ID:${requestId}]`);
-    console.log(`📍 Destinataire sélectionné: ${req.body.destinator_id || 'other'}`);
     
     if (err) {
       console.error("❌ Erreur upload:", err);
@@ -1058,47 +1004,42 @@ app.post("/api/emails/send", authenticateToken, (req, res) => {
       }
       const userEmail = userResult.rows[0].email;
       
-      // ===== RECHERCHE DU DESIGN =====
-      let design = null;
+      // ===== RECHERCHE DES COULEURS DU DESIGN =====
+      let designColors = {
+        header_color: '#007AFF',
+        footer_color: '#2c3e50',
+        accent_color: '#007AFF'
+      };
       let designId = null;
+      let designName = 'Standard - Bleu';
       
       try {
         const designResult = await dbPool.query(
-          `SELECT id, destinator_id, design_name, primary_color, secondary_color, gradient_start, gradient_end
+          `SELECT id, design_name, header_color, footer_color, accent_color
            FROM email_designs 
            WHERE destinator_id = $1 AND is_active = true`,
           [destinator_id]
         );
         
         if (designResult.rows.length > 0) {
-          design = designResult.rows[0];
+          const design = designResult.rows[0];
           designId = design.id;
-          console.log(`✅ Design trouvé: ${design.design_name} (${design.primary_color})`);
+          designName = design.design_name;
+          designColors = {
+            header_color: design.header_color,
+            footer_color: design.footer_color,
+            accent_color: design.accent_color
+          };
+          console.log(`🎨 Design trouvé: ${design.design_name} (${design.header_color})`);
         } else {
-          console.log(`ℹ️ Aucun design trouvé pour '${destinator_id}', utilisation du design par défaut`);
+          console.log(`ℹ️ Aucun design trouvé pour '${destinator_id}', utilisation des couleurs par défaut`);
         }
       } catch (designError) {
-        console.error("❌ Erreur récupération design:", designError.message);
+        console.error("⚠️ Erreur récupération design:", designError.message);
       }
       
-      // ===== GÉNÉRATION DU HTML =====
-      const bannerBase64 = getBannerImageBase64();
-      
-      // Utiliser les couleurs du design ou les valeurs par défaut
-      const designColors = design ? {
-        primary_color: design.primary_color,
-        secondary_color: design.secondary_color,
-        gradient_start: design.gradient_start,
-        gradient_end: design.gradient_end
-      } : {};
-      
-      const htmlContent = generateYoupiMailHTML(
-        subject,
-        message,
-        userEmail,
-        bannerBase64,
-        designColors
-      );
+      // ===== GÉNÉRATION DU HTML UNIFIÉ =====
+      const finalHTML = generateEmailHTML(subject, message, userEmail, designColors);
       
       // ===== SAUVEGARDE EN BASE =====
       const emailResult = await dbPool.query(
@@ -1111,24 +1052,24 @@ app.post("/api/emails/send", authenticateToken, (req, res) => {
       
       const emailId = emailResult.rows[0].id;
       
-      // ===== TRAITEMENT DES PIÈCES JOINTES =====
       let sendGridAttachments = [];
       if (files.length > 0) {
         sendGridAttachments = await processAttachments(files, emailId);
       }
       
-      // ===== ENVOI VIA SENDGRID =====
       const emailData = {
         to: to,
         subject: subject,
         text: message,
-        html: htmlContent,
+        html: finalHTML,
         replyTo: userEmail,
         senderName: 'Youpi Mail',
         attachments: sendGridAttachments
       };
       
       console.log("⏳ Envoi via SendGrid...");
+      console.log(`🎨 Design: ${designName}`);
+      console.log(`🖼️ Bannière: ${getBannerImageBase64() ? 'Intégrée' : 'Fond coloré'}`);
       
       const sendStartTime = Date.now();
       const result = await sendEmailViaAPI(emailData);
@@ -1141,8 +1082,6 @@ app.post("/api/emails/send", authenticateToken, (req, res) => {
       
       console.log(`✅ EMAIL ENVOYÉ AVEC SUCCÈS en ${sendTime}ms`);
       console.log(`📧 Message ID: ${result.messageId || 'N/A'}`);
-      console.log(`🎨 Design: ${design?.design_name || 'Youpi Mail Default'}`);
-      console.log(`🖼️ Bannière: ${bannerBase64 ? '✅ Intégrée' : '⚠️ Titre par défaut'}`);
       console.log("=".repeat(70) + "\n");
       
       const totalTime = Date.now() - startTime;
@@ -1151,7 +1090,7 @@ app.post("/api/emails/send", authenticateToken, (req, res) => {
         success: true,
         messageId: result.messageId,
         timestamp: new Date().toISOString(),
-        details: `Email envoyé avec succès de "${process.env.SMTP_SENDER}" à "${to}"`,
+        details: `Email envoyé avec le design ${designName}`,
         from: process.env.SMTP_SENDER,
         replyTo: userEmail,
         to: to,
@@ -1160,15 +1099,12 @@ app.post("/api/emails/send", authenticateToken, (req, res) => {
         requestId: requestId,
         email_id: emailId,
         destinator_id: destinator_id,
-        design: design || { 
-          id: null, 
-          destinator_id: 'default', 
-          design_name: 'Youpi Mail Default',
-          primary_color: '#007AFF',
-          secondary_color: '#2c3e50'
+        design: {
+          id: designId,
+          name: designName,
+          colors: designColors
         },
-        attachments_count: files.length,
-        banner_included: bannerBase64 ? true : false
+        attachments_count: files.length
       });
       
     } catch (error) {
@@ -1224,17 +1160,22 @@ app.post("/api/emails/send", authenticateToken, (req, res) => {
 });
 
 // ===== ROUTES DESIGNS =====
-app.get("/api/designs/available", authenticateToken, async (req, res) => {
+
+/**
+ * LISTE TOUS LES DESIGNS DISPONIBLES
+ */
+app.get("/api/designs", authenticateToken, async (req, res) => {
   try {
     const result = await dbPool.query(
-      `SELECT id, destinator_id, design_name, category, is_active, 
-              primary_color, secondary_color, gradient_start, gradient_end,
-              created_at, updated_at
-       FROM email_designs 
+      `SELECT id, destinator_id, design_name, is_active, 
+              header_color, footer_color, accent_color,
+              created_at, updated_at,
+              (SELECT COUNT(*) FROM emails WHERE destinator_id = d.destinator_id) as usage_count
+       FROM email_designs d
        ORDER BY destinator_id`
     );
     
-    console.log(`✅ ${result.rows.length} designs disponibles récupérés`);
+    console.log(`🎨 ${result.rows.length} designs disponibles`);
     
     res.json({
       success: true,
@@ -1244,6 +1185,178 @@ app.get("/api/designs/available", authenticateToken, async (req, res) => {
     
   } catch (error) {
     console.error("❌ Erreur récupération designs:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * TEST D'UN DESIGN SPÉCIFIQUE
+ */
+app.get("/api/designs/test/:destinator_id", authenticateToken, async (req, res) => {
+  try {
+    const { destinator_id } = req.params;
+    
+    const designResult = await dbPool.query(
+      `SELECT id, destinator_id, design_name, is_active, 
+              header_color, footer_color, accent_color
+       FROM email_designs 
+       WHERE destinator_id = $1`,
+      [destinator_id]
+    );
+    
+    if (designResult.rows.length === 0) {
+      const allDesigns = await dbPool.query(
+        `SELECT destinator_id, design_name FROM email_designs ORDER BY destinator_id`
+      );
+      
+      return res.status(404).json({
+        success: false,
+        error: `Design non trouvé pour destinator_id: ${destinator_id}`,
+        available_designs: allDesigns.rows.map(d => d.destinator_id)
+      });
+    }
+    
+    const design = designResult.rows[0];
+    
+    res.json({
+      success: true,
+      design: {
+        id: design.id,
+        destinator_id: design.destinator_id,
+        name: design.design_name,
+        is_active: design.is_active,
+        colors: {
+          header: design.header_color,
+          footer: design.footer_color,
+          accent: design.accent_color
+        }
+      }
+    });
+    
+  } catch (error) {
+    console.error("❌ Erreur test design:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * CRÉATION D'UN NOUVEAU DESIGN
+ */
+app.post("/api/designs/create", authenticateToken, async (req, res) => {
+  try {
+    const { 
+      destinator_id, 
+      design_name, 
+      header_color = '#007AFF',
+      footer_color = '#2c3e50',
+      accent_color = '#007AFF'
+    } = req.body;
+    
+    if (!destinator_id || !design_name) {
+      return res.status(400).json({ 
+        success: false, 
+        error: "destinator_id et design_name sont requis" 
+      });
+    }
+    
+    const existingResult = await dbPool.query(
+      'SELECT id FROM email_designs WHERE destinator_id = $1',
+      [destinator_id]
+    );
+    
+    if (existingResult.rows.length > 0) {
+      return res.status(409).json({ 
+        success: false, 
+        error: "Un design avec cet identifiant existe déjà" 
+      });
+    }
+    
+    const result = await dbPool.query(
+      `INSERT INTO email_designs 
+       (destinator_id, design_name, header_color, footer_color, accent_color)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING *`,
+      [
+        destinator_id,
+        design_name,
+        header_color,
+        footer_color,
+        accent_color
+      ]
+    );
+    
+    console.log(`✅ Nouveau design créé: ${design_name} (${destinator_id})`);
+    
+    res.status(201).json({
+      success: true,
+      message: "Design créé avec succès",
+      design: result.rows[0]
+    });
+    
+  } catch (error) {
+    console.error("❌ Erreur création design:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * MISE À JOUR DES COULEURS D'UN DESIGN
+ */
+app.patch("/api/designs/:id/colors", authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { header_color, footer_color, accent_color } = req.body;
+    
+    const updates = [];
+    const values = [];
+    let paramCount = 1;
+    
+    if (header_color) {
+      updates.push(`header_color = $${paramCount}`);
+      values.push(header_color);
+      paramCount++;
+    }
+    
+    if (footer_color) {
+      updates.push(`footer_color = $${paramCount}`);
+      values.push(footer_color);
+      paramCount++;
+    }
+    
+    if (accent_color) {
+      updates.push(`accent_color = $${paramCount}`);
+      values.push(accent_color);
+      paramCount++;
+    }
+    
+    if (updates.length === 0) {
+      return res.status(400).json({ 
+        success: false, 
+        error: "Aucune couleur à mettre à jour" 
+      });
+    }
+    
+    updates.push(`updated_at = NOW()`);
+    values.push(id);
+    
+    const query = `UPDATE email_designs SET ${updates.join(', ')} WHERE id = $${paramCount} RETURNING *`;
+    
+    const result = await dbPool.query(query, values);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: "Design non trouvé" });
+    }
+    
+    console.log(`🎨 Couleurs mises à jour pour ${result.rows[0].design_name}`);
+    
+    res.json({
+      success: true,
+      message: "Couleurs du design mises à jour",
+      design: result.rows[0]
+    });
+    
+  } catch (error) {
+    console.error("❌ Erreur mise à jour couleurs:", error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -1334,6 +1447,56 @@ app.get("/api/emails", authenticateToken, async (req, res) => {
   }
 });
 
+app.get("/api/emails/:id", authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user_id = req.userId;
+    
+    const result = await dbPool.query(
+      'SELECT * FROM emails WHERE id = $1 AND user_id = $2',
+      [id, user_id]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: "Email non trouvé" });
+    }
+    
+    const email = result.rows[0];
+    const attachments = await getAttachmentsByEmailId(email.id);
+    
+    res.json({
+      success: true,
+      email: {
+        id: email.id,
+        to: email.to_email,
+        subject: email.subject,
+        content: email.content,
+        status: email.status,
+        folder: email.folder || 'inbox',
+        destinator_id: email.destinator_id,
+        design_id: email.design_id,
+        has_attachments: email.has_attachments || attachments.length > 0,
+        attachments: attachments.map(att => ({
+          id: att.id,
+          filename: att.original_filename,
+          size: att.file_size,
+          mime_type: att.mime_type,
+          url: att.cloud_url || `/api/attachments/${att.id}/download`,
+          created_at: att.created_at
+        })),
+        createdAt: email.created_at,
+        updatedAt: email.updated_at || email.created_at,
+        errorDetail: email.error_detail,
+        sendgridMessageId: email.sendgrid_message_id
+      }
+    });
+    
+  } catch (error) {
+    console.error("❌ Erreur récupération email:", error);
+    res.status(500).json({ success: false, error: "Erreur serveur" });
+  }
+});
+
 // ===== ROUTES PIÈCES JOINTES =====
 app.get("/api/attachments/:id/download", authenticateToken, async (req, res) => {
   try {
@@ -1372,33 +1535,30 @@ app.get("/api/attachments/:id/download", authenticateToken, async (req, res) => 
 // ===== ROUTES UTILITAIRES =====
 app.get("/", (req, res) => {
   res.json({
-    message: "Youpi Mail API - Design Youpi Mail",
+    message: "Youpi. API - Design Unifié",
     status: "online",
     version: "8.0.0",
     timestamp: new Date().toISOString(),
     features: [
-      "PostgreSQL", 
-      "SendGrid API", 
-      "Authentification", 
-      "Design Youpi Mail",
-      "Bannière personnalisée",
-      "Pièces jointes",
-      "Upload/Download fichiers"
+      "PostgreSQL",
+      "SendGrid API",
+      "Authentification",
+      "Design unifié - Même structure HTML pour tous",
+      "Couleurs personnalisables par destinataire",
+      "Image bannière en Base64",
+      "Texte justifié",
+      "Pièces jointes"
     ],
     designs_disponibles: {
-      marketing: { couleur: "#FF6B6B", description: "Design promotionnel" },
-      partner: { couleur: "#0F4C81", description: "Design professionnel" },
-      ad: { couleur: "#F9A826", description: "Design événementiel" },
-      other: { couleur: "#007AFF", description: "Design standard" }
+      marketing: { header: "#FF6B6B", accent: "#FF6B6B", description: "Orange/Rouge" },
+      partner: { header: "#0F4C81", accent: "#0F4C81", description: "Bleu foncé" },
+      ad: { header: "#F9A826", accent: "#F9A826", description: "Jaune/Orange" },
+      other: { header: "#007AFF", accent: "#007AFF", description: "Bleu standard" }
     },
     endpoints: {
       auth: ["POST /api/auth/register", "POST /api/auth/login", "GET /api/auth/profile"],
-      emails: [
-        "POST /api/emails/send (avec design automatique selon destinator_id)",
-        "GET /api/emails",
-        "GET /api/emails/:id"
-      ],
-      designs: ["GET /api/designs/available"],
+      emails: ["GET /api/emails", "GET /api/emails/:id", "POST /api/emails/send"],
+      designs: ["GET /api/designs", "GET /api/designs/test/:destinator_id", "POST /api/designs/create", "PATCH /api/designs/:id/colors"],
       attachments: ["GET /api/attachments/:id/download"],
       utils: ["GET /api/health", "GET /api/setup-database"]
     }
@@ -1422,7 +1582,6 @@ app.get("/api/health", async (req, res) => {
     const uploadsDirExists = fs.existsSync(path.join(__dirname, 'uploads'));
     
     const designsCount = await dbPool.query('SELECT COUNT(*) FROM email_designs');
-    const designsActive = await dbPool.query('SELECT COUNT(*) FROM email_designs WHERE is_active = true');
     
     res.json({
       status: "OK",
@@ -1432,12 +1591,10 @@ app.get("/api/health", async (req, res) => {
         database: dbStatus,
         sendgrid: process.env.SENDGRID_API_KEY ? "✅ configuré" : "❌ manquant",
         smtp_sender: process.env.SMTP_SENDER || "❌ manquant",
-        banner_image: bannerImageExists ? "✅ présent" : "⚠️ absent (titre par défaut)",
+        banner_image: bannerImageExists ? "✅ présent" : "⚠️ absent (fond coloré par défaut)",
         uploads_directory: uploadsDirExists ? "✅ prêt" : "✅ créé au premier upload",
-        designs_total: parseInt(designsCount.rows[0].count),
-        designs_active: parseInt(designsActive.rows[0].count)
-      },
-      db_time: dbTime
+        designs_total: parseInt(designsCount.rows[0].count)
+      }
     });
   } catch (error) {
     res.status(500).json({ status: "ERROR", error: error.message });
@@ -1451,7 +1608,7 @@ app.get("/api/setup-database", async (req, res) => {
     res.json({ 
       success: true, 
       message: "Base de données vérifiée et mise à jour avec succès",
-      designs: ["marketing", "partner", "ad", "other"]
+      designs: ["marketing (orange)", "partner (bleu foncé)", "ad (jaune)", "other (bleu)"]
     });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -1479,10 +1636,7 @@ app.use((err, req, res, next) => {
 // ===== DÉMARRAGE =====
 const initializeServices = async () => {
   try {
-    console.log("\n" + "=".repeat(70));
-    console.log("🚀 INITIALISATION DES SERVICES YOUPI MAIL");
-    console.log("=".repeat(70));
-    
+    console.log("🔄 Initialisation des services...");
     initializeDatabase();
     getSendGridClient();
     
@@ -1493,10 +1647,7 @@ const initializeServices = async () => {
     
     await createTables();
     await createDefaultDesigns();
-    
-    console.log("=".repeat(70));
-    console.log("✅ TOUS LES SERVICES SONT PRÊTS !");
-    console.log("=".repeat(70));
+    console.log("🚀 Tous les services sont prêts !");
   } catch (error) {
     console.error("💥 Échec initialisation:", error);
     process.exit(1);
@@ -1519,22 +1670,22 @@ const startServer = async () => {
     
     const server = app.listen(PORT, HOST, () => {
       console.log("\n" + "=".repeat(70));
-      console.log("✨ YOUPI MAIL API - DÉMARRÉE AVEC SUCCÈS");
+      console.log("🚀 YOUPI. API - DESIGN UNIFIÉ");
       console.log("=".repeat(70));
       console.log(`🌐 URL: https://system-mail-youpi-backend.onrender.com`);
       console.log(`🔧 Port: ${PORT}`);
-      console.log(`📊 Env: ${process.env.NODE_ENV || 'development'}`);
-      console.log(`⏰ Démarrage: ${new Date().toISOString()}`);
-      console.log("\n🎨 DESIGNS DISPONIBLES:");
-      console.log(`   • Marketing: #FF6B6B (Orange/Rouge)`);
-      console.log(`   • Partenaire: #0F4C81 (Bleu foncé)`);
-      console.log(`   • Publicité: #F9A826 (Jaune/Orange)`);
-      console.log(`   • Autre: #007AFF (Bleu Youpi)`);
-      console.log("\n🖼️ BANNIÈRE:");
-      console.log(`   • ${getBannerImageBase64() ? '✅ Image chargée' : '⚠️ Titre par défaut'}`);
-      console.log("\n📧 ROUTE PRINCIPALE:");
-      console.log(`   • POST /api/emails/send - Envoi avec design automatique`);
-      console.log("=".repeat(70) + "\n");
+      console.log(`\n🎨 Designs disponibles (même structure HTML):`);
+      console.log(`   • Marketing: En-tête #FF6B6B (Orange/Rouge)`);
+      console.log(`   • Partenaire: En-tête #0F4C81 (Bleu foncé)`);
+      console.log(`   • Publicité: En-tête #F9A826 (Jaune/Orange)`);
+      console.log(`   • Autre: En-tête #007AFF (Bleu)`);
+      console.log(`\n🖼️  Bannière: ${getBannerImageBase64() ? '✅ Image chargée (Base64)' : '⚠️ Image non trouvée - Fond coloré'}`);
+      console.log(`\n📧 Structure HTML: UNIFIÉE pour tous les destinataires`);
+      console.log(`   • Design identique, seules les couleurs changent`);
+      console.log(`   • Image bannière intégrée en Base64`);
+      console.log(`   • Texte justifié`);
+      console.log(`   • Badge expéditeur`);
+      console.log("=".repeat(70));
     });
     
     const shutdown = (signal) => {
