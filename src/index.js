@@ -80,14 +80,14 @@ const getBannerImageBase64 = () => {
       const imageBuffer = fs.readFileSync(imagePath);
       const base64Image = imageBuffer.toString('base64');
       const mimeType = 'image/png';
-      console.log(`🖼️ Image chargée: ${imagePath} (${Math.round(imageBuffer.length / 1024)} KB)`);
+      console.log(`Image chargée: ${imagePath} (${Math.round(imageBuffer.length / 1024)} KB)`);
       return `data:${mimeType};base64,${base64Image}`;
     } else {
-      console.log(`⚠️ Image non trouvée: ${imagePath}, utilisation du fond coloré par défaut`);
+      console.log(`Image non trouvée: ${imagePath}, utilisation du fond coloré par défaut`);
       return null;
     }
   } catch (error) {
-    console.error("❌ Erreur chargement image:", error.message);
+    console.error("Erreur chargement image:", error.message);
     return null;
   }
 };
@@ -471,7 +471,7 @@ const createDefaultDesigns = async () => {
   }
 };
 
-// ===== FONCTION DE GÉNÉRATION DU HTML UNIFIÉ =====
+// ===== FONCTION DE GÉNÉRATION DU HTML UNIFIÉ (CORRIGÉE) =====
 const generateEmailHTML = (subject, message, userEmail, colors = {}) => {
   const {
     header_color = '#007AFF',
@@ -479,173 +479,72 @@ const generateEmailHTML = (subject, message, userEmail, colors = {}) => {
     accent_color = '#007AFF'
   } = colors;
 
+  // Récupérer l'image en Base64
   const bannerBase64 = getBannerImageBase64();
   
+  // Version simplifiée de l'image pour SendGrid
+  const bannerHtml = bannerBase64 
+    ? `<img src="${bannerBase64}" alt="Bannière Youpi." style="width: 100%; max-height: 200px; object-fit: cover; display: block; border-radius: 8px 8px 0 0;" />`
+    : `<div style="background-color: ${header_color}; padding: 30px; text-align: center; color: white; font-size: 24px; font-weight: bold;">Youpi.</div>`;
+
   return `<!DOCTYPE html>
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>${subject}</title>
-    <style>
-        body {
-            font-family: 'Arial', sans-serif;
-            margin: 0;
-            padding: 0;
-            background-color: #f5f5f5;
-            line-height: 1.6;
-        }
-        .email-container {
-            max-width: 600px;
-            margin: 0 auto;
-            background-color: #ffffff;
-            border-radius: 10px;
-            overflow: hidden;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-        }
-        .header {
-            background-color: ${header_color};
-            padding: 0;
-            text-align: center;
-        }
-        .banner {
-            width: 100%;
-            max-height: 200px;
-            object-fit: cover;
-            border-radius: 8px 8px 0 0;
-            display: block;
-        }
-        .header-fallback {
-            background-color: ${header_color};
-            padding: 30px;
-            text-align: center;
-            color: white;
-            font-size: 24px;
-            font-weight: bold;
-        }
-        .content {
-            padding: 30px;
-            color: #333333;
-        }
-        .subject {
-            color: ${accent_color};
-            font-size: 24px;
-            margin-top: 0;
-            margin-bottom: 20px;
-            font-weight: bold;
-        }
-        .message {
-            color: #555555;
-            font-size: 16px;
-            line-height: 1.8;
-            white-space: pre-line;
-            text-align: justify;
-        }
-        .divider {
-            height: 1px;
-            background-color: #eeeeee;
-            margin: 30px 0;
-        }
-        .sender-info {
-            background-color: #f9f9f9;
-            padding: 20px;
-            border-radius: 8px;
-            border-left: 4px solid ${accent_color};
-            margin-top: 30px;
-        }
-        .footer {
-            background-color: ${footer_color};
-            color: #ffffff;
-            padding: 25px;
-            text-align: center;
-        }
-        .contact-info {
-            margin-bottom: 15px;
-            font-size: 14px;
-        }
-        .phone-numbers {
-            font-weight: bold;
-            color: ${accent_color};
-            margin: 10px 0;
-            line-height: 1.8;
-        }
-        .copyright {
-            font-size: 12px;
-            color: #95a5a6;
-            margin-top: 15px;
-            border-top: 1px solid #34495e;
-            padding-top: 15px;
-        }
-        .youpi-badge {
-            display: inline-block;
-            background-color: ${accent_color};
-            color: white;
-            padding: 5px 15px;
-            border-radius: 20px;
-            font-size: 12px;
-            margin-top: 10px;
-        }
-        @media (max-width: 600px) {
-            .content {
-                padding: 20px;
-            }
-            .subject {
-                font-size: 20px;
-            }
-            .message {
-                font-size: 14px;
-            }
-            .phone-numbers {
-                font-size: 14px;
-            }
-        }
-    </style>
 </head>
-<body>
-    <div class="email-container">
-        <!-- HEADER AVEC BANNIÈRE -->
-        <div class="header">
-            ${bannerBase64 
-                ? `<img src="${bannerBase64}" 
-                       alt="Bannière Youpi Mail" 
-                       class="banner"
-                       onerror="this.style.display='none'; this.parentElement.innerHTML='<div class=\\'header-fallback\\'>✉️ Youpi Mail</div>';">`
-                : `<div class="header-fallback">✉️ Youpi Mail</div>`
-            }
-        </div>
-        
-        <!-- CONTENU PRINCIPAL -->
-        <div class="content">
-            <h1 class="subject">${subject}</h1>
-            
-            <div class="message">
-                ${message.replace(/\n/g, '<br>')}
-            </div>
-            
-            <div class="divider"></div>
-            
-            <!-- INFO EXPÉDITEUR -->
-            <div class="sender-info">
-                <p><strong>Expéditeur :</strong> ${userEmail}</p>
-            </div>
-        </div>
-        
-        <!-- FOOTER AVEC COORDONNÉES -->
-        <div class="footer">
-            <div class="contact-info">
-                <p>Besoin d'aide ? Contactez-nous :</p>
-                <div class="phone-numbers">
-                    +243 856 163 550<br>
-                    +243 834 171 852
-                </div>
-            </div>
-            
-            <div class="copyright">
-                © ${new Date().getFullYear()} Youpi Mail. Tous droits réservés.<br>
-                <small>Envoyé via Youpi Mail</small>
-            </div>
-        </div>
-    </div>
+<body style="margin: 0; padding: 0; background-color: #f5f5f5; font-family: 'Arial', sans-serif; line-height: 1.6;">
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f5f5f5; padding: 20px 0;">
+        <tr>
+            <td align="center">
+                <table width="600" cellpadding="0" cellspacing="0" border="0" style="max-width: 600px; width: 100%; background-color: #ffffff; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);">
+                    <!-- HEADER AVEC BANNIÈRE -->
+                    <tr>
+                        <td style="background-color: ${header_color}; padding: 0; text-align: center;">
+                            ${bannerHtml}
+                        </td>
+                    </tr>
+                    
+                    <!-- CONTENU PRINCIPAL -->
+                    <tr>
+                        <td style="padding: 30px; color: #333333;">
+                            <h1 style="color: ${accent_color}; font-size: 24px; margin: 0 0 20px 0; font-weight: bold;">${subject}</h1>
+                            
+                            <div style="color: #555555; font-size: 16px; line-height: 1.8; text-align: justify;">
+                                ${message.replace(/\n/g, '<br>')}
+                            </div>
+                            
+                            <div style="height: 1px; background-color: #eeeeee; margin: 30px 0;"></div>
+                            
+                            <!-- INFO EXPÉDITEUR -->
+                            <div style="background-color: #f9f9f9; padding: 20px; border-radius: 8px; border-left: 4px solid ${accent_color}; margin-top: 30px;">
+                                <p style="margin: 0;"><strong>Expéditeur :</strong> ${userEmail}</p>
+                            </div>
+                        </td>
+                    </tr>
+                    
+                    <!-- FOOTER AVEC COORDONNÉES -->
+                    <tr>
+                        <td style="background-color: ${footer_color}; color: #ffffff; padding: 25px; text-align: center;">
+                            <div style="margin-bottom: 15px; font-size: 14px;">
+                                <p style="margin: 0 0 10px 0;">Besoin d'aide ? Contactez-nous :</p>
+                                <div style="font-weight: bold; color: ${accent_color}; margin: 10px 0; line-height: 1.8;">
+                                    +243 856 163 550<br>
+                                    +243 834 171 852
+                                </div>
+                            </div>
+                            
+                            <div style="font-size: 12px; color: #95a5a6; margin-top: 15px; border-top: 1px solid #34495e; padding-top: 15px;">
+                                © ${new Date().getFullYear()} Youpi. Tous droits réservés.<br>
+                                <small>Envoyé via Youpi Mail</small>
+                            </div>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
 </body>
 </html>`;
 };
@@ -658,7 +557,7 @@ const sendEmailViaAPI = async (emailData) => {
     to: emailData.to,
     from: {
       email: process.env.SMTP_SENDER,
-      name: emailData.senderName || 'Youpi Mail'
+      name: emailData.senderName || 'Youpi.'
     },
     subject: emailData.subject,
     text: emailData.text,
@@ -692,10 +591,8 @@ const sendEmailViaAPI = async (emailData) => {
 };
 
 // ===== FONCTIONS UTILITAIRES POUR LES PIÈCES JOINTES =====
-// ⚠️ IMPORTANT: Ces fonctions doivent être DÉCLARÉES avant d'être utilisées !
-
 /**
- * Traite et sauvegarde les pièces jointes - VERSION CORRIGÉE
+ * Traite et sauvegarde les pièces jointes
  */
 const processAttachments = async (files, emailId) => {
   const attachments = [];
@@ -705,7 +602,6 @@ const processAttachments = async (files, emailId) => {
       const fileBuffer = fs.readFileSync(file.path);
       const base64Content = fileBuffer.toString('base64');
       
-      // ✅ Insertion avec TOUTES les colonnes
       const result = await dbPool.query(
         `INSERT INTO attachments 
          (email_id, filename, original_filename, file_path, file_size, mime_type, is_uploaded) 
@@ -743,11 +639,10 @@ const processAttachments = async (files, emailId) => {
 };
 
 /**
- * Récupère les pièces jointes d'un email avec gestion de la compatibilité
+ * Récupère les pièces jointes d'un email
  */
 const getAttachmentsByEmailId = async (emailId) => {
   try {
-    // 1. Vérifier si la table attachments existe
     const tableCheck = await dbPool.query(`
       SELECT EXISTS (
         SELECT FROM information_schema.tables 
@@ -759,7 +654,6 @@ const getAttachmentsByEmailId = async (emailId) => {
       return [];
     }
     
-    // 2. Vérifier les colonnes disponibles
     const columnsCheck = await dbPool.query(`
       SELECT column_name 
       FROM information_schema.columns 
@@ -768,7 +662,6 @@ const getAttachmentsByEmailId = async (emailId) => {
     
     const existingColumns = columnsCheck.rows.map(row => row.column_name);
     
-    // 3. Construire la requête dynamique
     let query = 'SELECT id, file_size, mime_type, cloud_url, created_at';
     
     if (existingColumns.includes('original_filename')) {
@@ -787,7 +680,6 @@ const getAttachmentsByEmailId = async (emailId) => {
     
     const result = await dbPool.query(query, [emailId]);
     
-    // 4. Formater les résultats
     return result.rows.map(att => ({
       id: att.id,
       original_filename: att.filename || 'fichier_inconnu.pdf',
@@ -805,7 +697,7 @@ const getAttachmentsByEmailId = async (emailId) => {
 };
 
 /**
- * Mise à jour de la table attachments pour ajouter les colonnes manquantes
+ * Mise à jour de la table attachments
  */
 const updateAttachmentsTable = async () => {
   try {
@@ -1205,7 +1097,7 @@ app.post("/api/emails/send", authenticateToken, (req, res) => {
         console.error("⚠️ Erreur récupération design:", designError.message);
       }
       
-      // ===== GÉNÉRATION DU HTML UNIFIÉ =====
+      // ===== GÉNÉRATION DU HTML UNIFIÉ (AVEC LA VERSION CORRIGÉE) =====
       const finalHTML = generateEmailHTML(subject, message, userEmail, designColors);
       
       // ===== SAUVEGARDE EN BASE =====
@@ -1233,7 +1125,7 @@ app.post("/api/emails/send", authenticateToken, (req, res) => {
         text: message,
         html: finalHTML,
         replyTo: userEmail,
-        senderName: 'Youpi Mail',
+        senderName: 'Youpi.',
         attachments: sendGridAttachments
       };
       
@@ -1705,7 +1597,7 @@ app.get("/", (req, res) => {
       "Authentification",
       "Design unifié - Même structure HTML pour tous",
       "Couleurs personnalisables par destinataire",
-      "Image bannière en Base64",
+      "Image bannière en Base64 (format table HTML)",
       "Texte justifié",
       "Pièces jointes avec SendGrid"
     ],
@@ -1745,7 +1637,7 @@ app.get("/api/health", async (req, res) => {
         database: dbStatus,
         sendgrid: process.env.SENDGRID_API_KEY ? "✅ configuré" : "❌ manquant",
         smtp_sender: process.env.SMTP_SENDER || "❌ manquant",
-        banner_image: bannerImageExists ? "✅ présent" : "⚠️ absent (fond coloré)",
+        banner_image: bannerImageExists ? "✅ présent (format table HTML)" : "⚠️ absent (fond coloré)",
         uploads_directory: uploadsDirExists ? "✅ prêt" : "✅ créé au premier upload",
         designs_total: parseInt(designsCount.rows[0].count),
         attachments_total: parseInt(attachmentsCount.rows[0].count)
@@ -1827,7 +1719,7 @@ const startServer = async () => {
   try {
     await initializeServices();
     
-    const server = app.listen(PORT, HOST, async () => {  // ⚠️ AJOUTEZ 'async' ICI
+    const server = app.listen(PORT, HOST, async () => {
       console.log("\n" + "=".repeat(70));
       console.log("🚀 YOUPI. API - DESIGN UNIFIÉ");
       console.log("=".repeat(70));
@@ -1838,7 +1730,7 @@ const startServer = async () => {
       console.log(`   • Partenaire: En-tête #0F4C81`);
       console.log(`   • Publicité: En-tête #F9A826`);
       console.log(`   • Autre: En-tête #007AFF`);
-      console.log(`\n🖼️  Bannière: ${getBannerImageBase64() ? '✅ Image chargée' : '⚠️ Fond coloré'}`);
+      console.log(`\n🖼️  Bannière: ${getBannerImageBase64() ? '✅ Image chargée (format table HTML)' : '⚠️ Fond coloré'}`);
       
       try {
         const attachmentsResult = await dbPool.query('SELECT COUNT(*) FROM attachments');
@@ -1850,7 +1742,6 @@ const startServer = async () => {
       
       console.log("=".repeat(70));
     });
-    
     
     const shutdown = (signal) => {
       console.log(`\n🛑 Signal ${signal} reçu - Arrêt du serveur...`);
