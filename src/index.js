@@ -692,122 +692,147 @@ const sendEmailViaAPI = async (emailData) => {
 };
 
 // ===== FONCTIONS UTILITAIRES POUR LES PIÈCES JOINTES =====
-const processAttachments = async (files, emailId) => {
-  const attachments = [];
-  
-  for (const file of files) {
-    try {
-      const fileBuffer = fs.readFileSync(file.path);
-      const base64Content = fileBuffer.toString('base64');
-      
-      const attachment = {
-        email_id: emailId,
-        filename: file.filename,
-        original_filename: file.originalname,
-        file_path: file.path,
-        file_size: file.size,
-        mime_type: file.mimetype,
-        is_uploaded: true,
-        created_at: new Date()
-      };
-      
-      const result = await dbPool.query(
-        `INSERT INTO attachments 
-         (email_id, filename, original_filename, file_path, file_size, mime_type, is_uploaded) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7) 
-         RETURNING id`,
-        [
-          emailId,
-          attachment.filename,
-          attachment.original_filename,
-          attachment.file_path,
-          attachment.file_size,
-          attachment.mime_type,
-          true
-        ]
-      );
-      
-      attachment.id = result.rows[0].id;
-      
-      attachments.push({
-        content: base64Content,
-        filename: file.originalname,
-        type: file.mimetype,
-        disposition: 'attachment',
-        content_id: attachment.id
-      });
-      
-      console.log(`📎 Pièce jointe sauvegardée: ${file.originalname} (${Math.round(file.size / 1024)} KB)`);
-      
-    } catch (error) {
-      console.error(`❌ Erreur traitement pièce jointe ${file.originalname}:`, error.message);
-    }
-  }
-  
-  return attachments;
-};
 
+/**
+ * Récupère les pièces jointes d'un email avec gestion de la compatibilité
+ */
 const getAttachmentsByEmailId = async (emailId) => {
   try {
-    const result = await dbPool.query(
-      `SELECT id, filename, original_filename, file_path, file_size, mime_type, cloud_url, created_at
-       FROM attachments 
-       WHERE email_id = $1
-       ORDER BY created_at ASC`,
-      [emailId]
-    );
+    // 1. Vérifier d'abord si la table attachments existe
+    const tableCheck = await dbPool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'attachments'
+      )
+    `);
     
-    return result.rows;
+    if (!tableCheck.rows[0].exists) {
+      return []; // Table n'existe pas encore
+    }
+    
+    // 2. Vérifier les colonnes disponibles
+    const columnsCheck = await dbPool.query(`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name = 'attachments'
+    `);
+    
+    const existingColumns = columnsCheck.rows.map(row => row.column_name);
+    
+    // 3. Construire la requête dynamiquement selon les colonnes existantes
+    let query = 'SELECT id, file_size, mime_type, cloud_url, created_at';
+    
+    // Ajouter les colonnes de nom de fichier si elles existent
+    if (existingColumns.includes('original_filename')) {
+      query += ', original_filename as filename';
+    } else if (existingColumns.includes('filename')) {
+      query += ', filename';
+    } else {
+      query += ', \'fichier_inconnu.pdf\' as filename';
+    }
+    
+    // Ajouter le chemin si disponible
+    if (existingColumns.includes('file_path')) {
+      query += ', file_path';
+    }
+    
+    query += ' FROM attachments WHERE email_id = $1 ORDER BY created_at ASC';
+    
+    const result = await dbPool.query(query, [emailId]);
+    
+    // 4. Formater les résultats de manière uniforme
+    return result.rows.map(att => ({
+      id: att.id,
+      original_filename: att.filename || 'fichier_inconnu.pdf',
+      filename: att.filename || 'fichier_inconnu.pdf',
+      file_size: att.file_size || 0,
+      mime_type: att.mime_type || 'application/octet-stream',
+      url: att.cloud_url || `/api/attachments/${att.id}/download`,
+      created_at: att.created_at
+    }));
+    
   } catch (error) {
     console.error(`❌ Erreur récupération pièces jointes pour email ${emailId}:`, error.message);
-    return [];
+    return []; // Retourner un tableau vide en cas d'erreur
   }
 };
 
-// ===== MIDDLEWARES =====
-app.use(cors({
-  origin: '*',
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
-  credentials: false
-}));
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
-app.use('/assets', express.static(path.join(__dirname, 'assets')));
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-
-app.use((req, res, next) => {
-  const start = Date.now();
-  const requestId = Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
-  
-  console.log(`\n[${new Date().toISOString()}] ${req.method} ${req.originalUrl} [ID:${requestId}]`);
-  if (req.method === 'POST' && req.body && Object.keys(req.body).length > 0) {
-    const logBody = {};
-    for (const [key, value] of Object.entries(req.body)) {
-      if (typeof value === 'string' && value.length > 100) {
-        logBody[key] = value.substring(0, 100) + '...';
-      } else if (key === 'password') {
-        logBody[key] = '***';
-      } else {
-        logBody[key] = value;
+/**
+ * Mise à jour de la table attachments pour ajouter les colonnes manquantes
+ */
+const updateAttachmentsTable = async () => {
+  try {
+    // Vérifier si la table existe
+    const tableCheck = await dbPool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'attachments'
+      )
+    `);
+    
+    if (tableCheck.rows[0].exists) {
+      // Vérifier les colonnes existantes
+      const columnsCheck = await dbPool.query(`
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = 'attachments'
+      `);
+      
+      const existingColumns = columnsCheck.rows.map(row => row.column_name);
+      
+      // Ajouter les colonnes manquantes
+      if (!existingColumns.includes('original_filename')) {
+        console.log("📋 Ajout de la colonne 'original_filename' à la table attachments...");
+        await dbPool.query(`
+          ALTER TABLE attachments 
+          ADD COLUMN original_filename VARCHAR(255);
+        `);
+        
+        // Remplir les données manquantes
+        await dbPool.query(`
+          UPDATE attachments 
+          SET original_filename = filename 
+          WHERE original_filename IS NULL AND filename IS NOT NULL;
+        `);
+        console.log("✅ Colonne 'original_filename' ajoutée avec succès");
+      }
+      
+      if (!existingColumns.includes('file_size')) {
+        console.log("📋 Ajout de la colonne 'file_size' à la table attachments...");
+        await dbPool.query(`
+          ALTER TABLE attachments 
+          ADD COLUMN file_size BIGINT DEFAULT 0;
+        `);
+        console.log("✅ Colonne 'file_size' ajoutée avec succès");
+      }
+      
+      if (!existingColumns.includes('mime_type')) {
+        console.log("📋 Ajout de la colonne 'mime_type' à la table attachments...");
+        await dbPool.query(`
+          ALTER TABLE attachments 
+          ADD COLUMN mime_type VARCHAR(255) DEFAULT 'application/octet-stream';
+        `);
+        console.log("✅ Colonne 'mime_type' ajoutée avec succès");
       }
     }
-    console.log(`📦 Body:`, logBody);
+  } catch (error) {
+    console.error("❌ Erreur mise à jour table attachments:", error.message);
   }
-  
-  res.setHeader('X-Request-ID', requestId);
-  
-  const originalSend = res.send;
-  res.send = function(body) {
-    const duration = Date.now() - start;
-    const statusEmoji = res.statusCode >= 400 ? '❌' : '✅';
-    console.log(`[${new Date().toISOString()}] ${statusEmoji} ${req.method} ${req.originalUrl} - ${res.statusCode} (${duration}ms)`);
-    originalSend.call(this, body);
-  };
-  
-  next();
-});
+};
 
+/**
+ * Fonction d'initialisation à appeler au démarrage
+ */
+const initializeDatabaseTables = async () => {
+  try {
+    await createTables();
+    await createDefaultDesigns();
+    await updateAttachmentsTable(); // Ajouter cette ligne
+    console.log("✅ Toutes les tables sont à jour");
+  } catch (error) {
+    console.error("❌ Erreur initialisation tables:", error.message);
+  }
+};
 // ===== MIDDLEWARE D'AUTHENTIFICATION =====
 const authenticateToken = async (req, res, next) => {
   try {
@@ -966,6 +991,65 @@ app.get("/api/auth/profile", authenticateToken, async (req, res) => {
   }
 });
 
+
+/**
+ * ROUTE DE MAINTENANCE - Répare les tables et les données
+ */
+app.post("/api/maintenance/fix-attachments", authenticateToken, async (req, res) => {
+  try {
+    // Vérifier que l'utilisateur est admin (optionnel)
+    const userResult = await dbPool.query('SELECT id FROM users WHERE id = $1', [req.userId]);
+    if (userResult.rows.length === 0) {
+      return res.status(403).json({ success: false, error: "Accès non autorisé" });
+    }
+
+    const results = [];
+    
+    // 1. Ajouter les colonnes manquantes
+    const columnsCheck = await dbPool.query(`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name = 'attachments'
+    `);
+    
+    const existingColumns = columnsCheck.rows.map(row => row.column_name);
+    
+    if (!existingColumns.includes('original_filename')) {
+      await dbPool.query(`
+        ALTER TABLE attachments 
+        ADD COLUMN original_filename VARCHAR(255);
+      `);
+      results.push("✅ Colonne 'original_filename' ajoutée");
+    }
+    
+    // 2. Mettre à jour les données existantes
+    const updateResult = await dbPool.query(`
+      UPDATE attachments 
+      SET original_filename = filename 
+      WHERE original_filename IS NULL AND filename IS NOT NULL;
+    `);
+    results.push(`✅ ${updateResult.rowCount} enregistrements mis à jour`);
+    
+    // 3. Vérifier les index
+    await dbPool.query(`
+      CREATE INDEX IF NOT EXISTS idx_attachments_email_id 
+      ON attachments(email_id);
+    `);
+    results.push("✅ Index vérifié");
+    
+    res.json({
+      success: true,
+      message: "Maintenance terminée",
+      results
+    });
+    
+  } catch (error) {
+    console.error("❌ Erreur maintenance:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+
 // ===== ROUTE PRINCIPALE D'ENVOI D'EMAIL =====
 app.post("/api/emails/send", authenticateToken, (req, res) => {
   upload(req, res, async (err) => {
@@ -1057,6 +1141,54 @@ app.post("/api/emails/send", authenticateToken, (req, res) => {
         sendGridAttachments = await processAttachments(files, emailId);
       }
       
+
+      const processAttachments = async (files, emailId) => {
+  const attachments = [];
+  
+  for (const file of files) {
+    try {
+      const fileBuffer = fs.readFileSync(file.path);
+      const base64Content = fileBuffer.toString('base64');
+      
+      // ✅ VERSION CORRIGÉE - Ajoute TOUTES les colonnes nécessaires
+      const result = await dbPool.query(
+        `INSERT INTO attachments 
+         (email_id, filename, original_filename, file_path, file_size, mime_type, is_uploaded) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7) 
+         RETURNING id`,
+        [
+          emailId,
+          file.filename,           // Nom unique généré
+          file.originalname,       // Nom original du fichier
+          file.path,              // Chemin complet
+          file.size,             // Taille en bytes
+          file.mimetype,         // Type MIME
+          true                  // Uploadé
+        ]
+      );
+      
+      attachment.id = result.rows[0].id;
+      
+      attachments.push({
+        content: base64Content,
+        filename: file.originalname,
+        type: file.mimetype,
+        disposition: 'attachment',
+        content_id: attachment.id
+      });
+      
+      console.log(`📎 Pièce jointe sauvegardée: ${file.originalname} (${Math.round(file.size / 1024)} KB) - ID: ${attachment.id}`);
+      
+    } catch (error) {
+      console.error(`❌ Erreur traitement pièce jointe ${file.originalname}:`, error.message);
+    }
+  }
+  
+  return attachments;
+};
+
+
+
       const emailData = {
         to: to,
         subject: subject,
