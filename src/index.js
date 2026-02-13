@@ -692,13 +692,62 @@ const sendEmailViaAPI = async (emailData) => {
 };
 
 // ===== FONCTIONS UTILITAIRES POUR LES PIÈCES JOINTES =====
+// ⚠️ IMPORTANT: Ces fonctions doivent être DÉCLARÉES avant d'être utilisées !
+
+/**
+ * Traite et sauvegarde les pièces jointes - VERSION CORRIGÉE
+ */
+const processAttachments = async (files, emailId) => {
+  const attachments = [];
+  
+  for (const file of files) {
+    try {
+      const fileBuffer = fs.readFileSync(file.path);
+      const base64Content = fileBuffer.toString('base64');
+      
+      // ✅ Insertion avec TOUTES les colonnes
+      const result = await dbPool.query(
+        `INSERT INTO attachments 
+         (email_id, filename, original_filename, file_path, file_size, mime_type, is_uploaded) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7) 
+         RETURNING id`,
+        [
+          emailId,
+          file.filename,
+          file.originalname,
+          file.path,
+          file.size,
+          file.mimetype,
+          true
+        ]
+      );
+      
+      const attachmentId = result.rows[0].id;
+      
+      attachments.push({
+        content: base64Content,
+        filename: file.originalname,
+        type: file.mimetype,
+        disposition: 'attachment',
+        content_id: attachmentId
+      });
+      
+      console.log(`📎 Pièce jointe sauvegardée: ${file.originalname} (${Math.round(file.size / 1024)} KB) - ID: ${attachmentId}`);
+      
+    } catch (error) {
+      console.error(`❌ Erreur traitement pièce jointe ${file.originalname}:`, error.message);
+    }
+  }
+  
+  return attachments;
+};
 
 /**
  * Récupère les pièces jointes d'un email avec gestion de la compatibilité
  */
 const getAttachmentsByEmailId = async (emailId) => {
   try {
-    // 1. Vérifier d'abord si la table attachments existe
+    // 1. Vérifier si la table attachments existe
     const tableCheck = await dbPool.query(`
       SELECT EXISTS (
         SELECT FROM information_schema.tables 
@@ -707,7 +756,7 @@ const getAttachmentsByEmailId = async (emailId) => {
     `);
     
     if (!tableCheck.rows[0].exists) {
-      return []; // Table n'existe pas encore
+      return [];
     }
     
     // 2. Vérifier les colonnes disponibles
@@ -719,10 +768,9 @@ const getAttachmentsByEmailId = async (emailId) => {
     
     const existingColumns = columnsCheck.rows.map(row => row.column_name);
     
-    // 3. Construire la requête dynamiquement selon les colonnes existantes
+    // 3. Construire la requête dynamique
     let query = 'SELECT id, file_size, mime_type, cloud_url, created_at';
     
-    // Ajouter les colonnes de nom de fichier si elles existent
     if (existingColumns.includes('original_filename')) {
       query += ', original_filename as filename';
     } else if (existingColumns.includes('filename')) {
@@ -731,7 +779,6 @@ const getAttachmentsByEmailId = async (emailId) => {
       query += ', \'fichier_inconnu.pdf\' as filename';
     }
     
-    // Ajouter le chemin si disponible
     if (existingColumns.includes('file_path')) {
       query += ', file_path';
     }
@@ -740,7 +787,7 @@ const getAttachmentsByEmailId = async (emailId) => {
     
     const result = await dbPool.query(query, [emailId]);
     
-    // 4. Formater les résultats de manière uniforme
+    // 4. Formater les résultats
     return result.rows.map(att => ({
       id: att.id,
       original_filename: att.filename || 'fichier_inconnu.pdf',
@@ -753,7 +800,7 @@ const getAttachmentsByEmailId = async (emailId) => {
     
   } catch (error) {
     console.error(`❌ Erreur récupération pièces jointes pour email ${emailId}:`, error.message);
-    return []; // Retourner un tableau vide en cas d'erreur
+    return [];
   }
 };
 
@@ -762,7 +809,6 @@ const getAttachmentsByEmailId = async (emailId) => {
  */
 const updateAttachmentsTable = async () => {
   try {
-    // Vérifier si la table existe
     const tableCheck = await dbPool.query(`
       SELECT EXISTS (
         SELECT FROM information_schema.tables 
@@ -771,7 +817,6 @@ const updateAttachmentsTable = async () => {
     `);
     
     if (tableCheck.rows[0].exists) {
-      // Vérifier les colonnes existantes
       const columnsCheck = await dbPool.query(`
         SELECT column_name 
         FROM information_schema.columns 
@@ -780,40 +825,37 @@ const updateAttachmentsTable = async () => {
       
       const existingColumns = columnsCheck.rows.map(row => row.column_name);
       
-      // Ajouter les colonnes manquantes
       if (!existingColumns.includes('original_filename')) {
-        console.log("📋 Ajout de la colonne 'original_filename' à la table attachments...");
+        console.log("📋 Ajout de la colonne 'original_filename'...");
         await dbPool.query(`
           ALTER TABLE attachments 
           ADD COLUMN original_filename VARCHAR(255);
         `);
         
-        // Remplir les données manquantes
         await dbPool.query(`
           UPDATE attachments 
           SET original_filename = filename 
           WHERE original_filename IS NULL AND filename IS NOT NULL;
         `);
-        console.log("✅ Colonne 'original_filename' ajoutée avec succès");
       }
       
       if (!existingColumns.includes('file_size')) {
-        console.log("📋 Ajout de la colonne 'file_size' à la table attachments...");
+        console.log("📋 Ajout de la colonne 'file_size'...");
         await dbPool.query(`
           ALTER TABLE attachments 
           ADD COLUMN file_size BIGINT DEFAULT 0;
         `);
-        console.log("✅ Colonne 'file_size' ajoutée avec succès");
       }
       
       if (!existingColumns.includes('mime_type')) {
-        console.log("📋 Ajout de la colonne 'mime_type' à la table attachments...");
+        console.log("📋 Ajout de la colonne 'mime_type'...");
         await dbPool.query(`
           ALTER TABLE attachments 
           ADD COLUMN mime_type VARCHAR(255) DEFAULT 'application/octet-stream';
         `);
-        console.log("✅ Colonne 'mime_type' ajoutée avec succès");
       }
+      
+      console.log("✅ Table 'attachments' mise à jour");
     }
   } catch (error) {
     console.error("❌ Erreur mise à jour table attachments:", error.message);
@@ -821,18 +863,65 @@ const updateAttachmentsTable = async () => {
 };
 
 /**
- * Fonction d'initialisation à appeler au démarrage
+ * Initialisation complète des tables
  */
 const initializeDatabaseTables = async () => {
   try {
     await createTables();
     await createDefaultDesigns();
-    await updateAttachmentsTable(); // Ajouter cette ligne
+    await updateAttachmentsTable();
     console.log("✅ Toutes les tables sont à jour");
   } catch (error) {
     console.error("❌ Erreur initialisation tables:", error.message);
   }
 };
+
+// ===== MIDDLEWARES =====
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+  credentials: false
+}));
+
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+app.use('/assets', express.static(path.join(__dirname, 'assets')));
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+app.use((req, res, next) => {
+  const start = Date.now();
+  const requestId = Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
+  
+  console.log(`\n[${new Date().toISOString()}] ${req.method} ${req.originalUrl} [ID:${requestId}]`);
+  
+  if (req.method === 'POST' && req.body && Object.keys(req.body).length > 0) {
+    const logBody = {};
+    for (const [key, value] of Object.entries(req.body)) {
+      if (typeof value === 'string' && value.length > 100) {
+        logBody[key] = value.substring(0, 100) + '...';
+      } else if (key === 'password') {
+        logBody[key] = '***';
+      } else {
+        logBody[key] = value;
+      }
+    }
+    console.log(`📦 Body:`, logBody);
+  }
+  
+  res.setHeader('X-Request-ID', requestId);
+  
+  const originalSend = res.send;
+  res.send = function(body) {
+    const duration = Date.now() - start;
+    const statusEmoji = res.statusCode >= 400 ? '❌' : '✅';
+    console.log(`[${new Date().toISOString()}] ${statusEmoji} ${req.method} ${req.originalUrl} - ${res.statusCode} (${duration}ms)`);
+    originalSend.call(this, body);
+  };
+  
+  next();
+});
+
 // ===== MIDDLEWARE D'AUTHENTIFICATION =====
 const authenticateToken = async (req, res, next) => {
   try {
@@ -991,13 +1080,11 @@ app.get("/api/auth/profile", authenticateToken, async (req, res) => {
   }
 });
 
-
 /**
  * ROUTE DE MAINTENANCE - Répare les tables et les données
  */
 app.post("/api/maintenance/fix-attachments", authenticateToken, async (req, res) => {
   try {
-    // Vérifier que l'utilisateur est admin (optionnel)
     const userResult = await dbPool.query('SELECT id FROM users WHERE id = $1', [req.userId]);
     if (userResult.rows.length === 0) {
       return res.status(403).json({ success: false, error: "Accès non autorisé" });
@@ -1005,7 +1092,6 @@ app.post("/api/maintenance/fix-attachments", authenticateToken, async (req, res)
 
     const results = [];
     
-    // 1. Ajouter les colonnes manquantes
     const columnsCheck = await dbPool.query(`
       SELECT column_name 
       FROM information_schema.columns 
@@ -1022,7 +1108,6 @@ app.post("/api/maintenance/fix-attachments", authenticateToken, async (req, res)
       results.push("✅ Colonne 'original_filename' ajoutée");
     }
     
-    // 2. Mettre à jour les données existantes
     const updateResult = await dbPool.query(`
       UPDATE attachments 
       SET original_filename = filename 
@@ -1030,7 +1115,6 @@ app.post("/api/maintenance/fix-attachments", authenticateToken, async (req, res)
     `);
     results.push(`✅ ${updateResult.rowCount} enregistrements mis à jour`);
     
-    // 3. Vérifier les index
     await dbPool.query(`
       CREATE INDEX IF NOT EXISTS idx_attachments_email_id 
       ON attachments(email_id);
@@ -1048,7 +1132,6 @@ app.post("/api/maintenance/fix-attachments", authenticateToken, async (req, res)
     res.status(500).json({ success: false, error: error.message });
   }
 });
-
 
 // ===== ROUTE PRINCIPALE D'ENVOI D'EMAIL =====
 app.post("/api/emails/send", authenticateToken, (req, res) => {
@@ -1136,59 +1219,14 @@ app.post("/api/emails/send", authenticateToken, (req, res) => {
       
       const emailId = emailResult.rows[0].id;
       
+      // ===== TRAITEMENT DES PIÈCES JOINTES =====
       let sendGridAttachments = [];
       if (files.length > 0) {
         sendGridAttachments = await processAttachments(files, emailId);
+        console.log(`✅ ${sendGridAttachments.length} pièce(s) jointe(s) préparée(s) pour SendGrid`);
       }
       
-
-      const processAttachments = async (files, emailId) => {
-  const attachments = [];
-  
-  for (const file of files) {
-    try {
-      const fileBuffer = fs.readFileSync(file.path);
-      const base64Content = fileBuffer.toString('base64');
-      
-      // ✅ VERSION CORRIGÉE - Ajoute TOUTES les colonnes nécessaires
-      const result = await dbPool.query(
-        `INSERT INTO attachments 
-         (email_id, filename, original_filename, file_path, file_size, mime_type, is_uploaded) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7) 
-         RETURNING id`,
-        [
-          emailId,
-          file.filename,           // Nom unique généré
-          file.originalname,       // Nom original du fichier
-          file.path,              // Chemin complet
-          file.size,             // Taille en bytes
-          file.mimetype,         // Type MIME
-          true                  // Uploadé
-        ]
-      );
-      
-      attachment.id = result.rows[0].id;
-      
-      attachments.push({
-        content: base64Content,
-        filename: file.originalname,
-        type: file.mimetype,
-        disposition: 'attachment',
-        content_id: attachment.id
-      });
-      
-      console.log(`📎 Pièce jointe sauvegardée: ${file.originalname} (${Math.round(file.size / 1024)} KB) - ID: ${attachment.id}`);
-      
-    } catch (error) {
-      console.error(`❌ Erreur traitement pièce jointe ${file.originalname}:`, error.message);
-    }
-  }
-  
-  return attachments;
-};
-
-
-
+      // ===== PRÉPARATION ET ENVOI =====
       const emailData = {
         to: to,
         subject: subject,
@@ -1202,6 +1240,7 @@ app.post("/api/emails/send", authenticateToken, (req, res) => {
       console.log("⏳ Envoi via SendGrid...");
       console.log(`🎨 Design: ${designName}`);
       console.log(`🖼️ Bannière: ${getBannerImageBase64() ? 'Intégrée' : 'Fond coloré'}`);
+      console.log(`📎 Attachments SendGrid: ${sendGridAttachments.length}`);
       
       const sendStartTime = Date.now();
       const result = await sendEmailViaAPI(emailData);
@@ -1214,6 +1253,7 @@ app.post("/api/emails/send", authenticateToken, (req, res) => {
       
       console.log(`✅ EMAIL ENVOYÉ AVEC SUCCÈS en ${sendTime}ms`);
       console.log(`📧 Message ID: ${result.messageId || 'N/A'}`);
+      console.log(`📎 Pièces jointes envoyées: ${sendGridAttachments.length}`);
       console.log("=".repeat(70) + "\n");
       
       const totalTime = Date.now() - startTime;
@@ -1236,7 +1276,8 @@ app.post("/api/emails/send", authenticateToken, (req, res) => {
           name: designName,
           colors: designColors
         },
-        attachments_count: files.length
+        attachments_count: files.length,
+        attachments_sent: sendGridAttachments.length
       });
       
     } catch (error) {
@@ -1292,10 +1333,6 @@ app.post("/api/emails/send", authenticateToken, (req, res) => {
 });
 
 // ===== ROUTES DESIGNS =====
-
-/**
- * LISTE TOUS LES DESIGNS DISPONIBLES
- */
 app.get("/api/designs", authenticateToken, async (req, res) => {
   try {
     const result = await dbPool.query(
@@ -1321,9 +1358,6 @@ app.get("/api/designs", authenticateToken, async (req, res) => {
   }
 });
 
-/**
- * TEST D'UN DESIGN SPÉCIFIQUE
- */
 app.get("/api/designs/test/:destinator_id", authenticateToken, async (req, res) => {
   try {
     const { destinator_id } = req.params;
@@ -1371,9 +1405,6 @@ app.get("/api/designs/test/:destinator_id", authenticateToken, async (req, res) 
   }
 });
 
-/**
- * CRÉATION D'UN NOUVEAU DESIGN
- */
 app.post("/api/designs/create", authenticateToken, async (req, res) => {
   try {
     const { 
@@ -1431,9 +1462,6 @@ app.post("/api/designs/create", authenticateToken, async (req, res) => {
   }
 });
 
-/**
- * MISE À JOUR DES COULEURS D'UN DESIGN
- */
 app.patch("/api/designs/:id/colors", authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
@@ -1669,7 +1697,7 @@ app.get("/", (req, res) => {
   res.json({
     message: "Youpi. API - Design Unifié",
     status: "online",
-    version: "8.0.0",
+    version: "8.1.0",
     timestamp: new Date().toISOString(),
     features: [
       "PostgreSQL",
@@ -1679,20 +1707,13 @@ app.get("/", (req, res) => {
       "Couleurs personnalisables par destinataire",
       "Image bannière en Base64",
       "Texte justifié",
-      "Pièces jointes"
+      "Pièces jointes avec SendGrid"
     ],
     designs_disponibles: {
       marketing: { header: "#FF6B6B", accent: "#FF6B6B", description: "Orange/Rouge" },
       partner: { header: "#0F4C81", accent: "#0F4C81", description: "Bleu foncé" },
       ad: { header: "#F9A826", accent: "#F9A826", description: "Jaune/Orange" },
       other: { header: "#007AFF", accent: "#007AFF", description: "Bleu standard" }
-    },
-    endpoints: {
-      auth: ["POST /api/auth/register", "POST /api/auth/login", "GET /api/auth/profile"],
-      emails: ["GET /api/emails", "GET /api/emails/:id", "POST /api/emails/send"],
-      designs: ["GET /api/designs", "GET /api/designs/test/:destinator_id", "POST /api/designs/create", "PATCH /api/designs/:id/colors"],
-      attachments: ["GET /api/attachments/:id/download"],
-      utils: ["GET /api/health", "GET /api/setup-database"]
     }
   });
 });
@@ -1714,6 +1735,7 @@ app.get("/api/health", async (req, res) => {
     const uploadsDirExists = fs.existsSync(path.join(__dirname, 'uploads'));
     
     const designsCount = await dbPool.query('SELECT COUNT(*) FROM email_designs');
+    const attachmentsCount = await dbPool.query('SELECT COUNT(*) FROM attachments');
     
     res.json({
       status: "OK",
@@ -1723,9 +1745,10 @@ app.get("/api/health", async (req, res) => {
         database: dbStatus,
         sendgrid: process.env.SENDGRID_API_KEY ? "✅ configuré" : "❌ manquant",
         smtp_sender: process.env.SMTP_SENDER || "❌ manquant",
-        banner_image: bannerImageExists ? "✅ présent" : "⚠️ absent (fond coloré par défaut)",
+        banner_image: bannerImageExists ? "✅ présent" : "⚠️ absent (fond coloré)",
         uploads_directory: uploadsDirExists ? "✅ prêt" : "✅ créé au premier upload",
-        designs_total: parseInt(designsCount.rows[0].count)
+        designs_total: parseInt(designsCount.rows[0].count),
+        attachments_total: parseInt(attachmentsCount.rows[0].count)
       }
     });
   } catch (error) {
@@ -1737,6 +1760,7 @@ app.get("/api/setup-database", async (req, res) => {
   try {
     await createTables();
     await createDefaultDesigns();
+    await updateAttachmentsTable();
     res.json({ 
       success: true, 
       message: "Base de données vérifiée et mise à jour avec succès",
@@ -1747,6 +1771,7 @@ app.get("/api/setup-database", async (req, res) => {
   }
 });
 
+// Gestion 404
 app.use((req, res) => {
   res.status(404).json({
     success: false,
@@ -1755,6 +1780,7 @@ app.use((req, res) => {
   });
 });
 
+// Gestion erreurs globales
 app.use((err, req, res, next) => {
   console.error("🔥 Erreur globale:", err);
   res.status(500).json({
@@ -1779,6 +1805,7 @@ const initializeServices = async () => {
     
     await createTables();
     await createDefaultDesigns();
+    await updateAttachmentsTable();
     console.log("🚀 Tous les services sont prêts !");
   } catch (error) {
     console.error("💥 Échec initialisation:", error);
@@ -1806,17 +1833,13 @@ const startServer = async () => {
       console.log("=".repeat(70));
       console.log(`🌐 URL: https://system-mail-youpi-backend.onrender.com`);
       console.log(`🔧 Port: ${PORT}`);
-      console.log(`\n🎨 Designs disponibles (même structure HTML):`);
-      console.log(`   • Marketing: En-tête #FF6B6B (Orange/Rouge)`);
-      console.log(`   • Partenaire: En-tête #0F4C81 (Bleu foncé)`);
-      console.log(`   • Publicité: En-tête #F9A826 (Jaune/Orange)`);
-      console.log(`   • Autre: En-tête #007AFF (Bleu)`);
-      console.log(`\n🖼️  Bannière: ${getBannerImageBase64() ? '✅ Image chargée (Base64)' : '⚠️ Image non trouvée - Fond coloré'}`);
-      console.log(`\n📧 Structure HTML: UNIFIÉE pour tous les destinataires`);
-      console.log(`   • Design identique, seules les couleurs changent`);
-      console.log(`   • Image bannière intégrée en Base64`);
-      console.log(`   • Texte justifié`);
-      console.log(`   • Badge expéditeur`);
+      console.log(`\n🎨 Designs disponibles:`);
+      console.log(`   • Marketing: En-tête #FF6B6B`);
+      console.log(`   • Partenaire: En-tête #0F4C81`);
+      console.log(`   • Publicité: En-tête #F9A826`);
+      console.log(`   • Autre: En-tête #007AFF`);
+      console.log(`\n🖼️  Bannière: ${getBannerImageBase64() ? '✅ Image chargée' : '⚠️ Fond coloré'}`);
+      console.log(`📎 Gestion pièces jointes: ✅ Active (${await dbPool.query('SELECT COUNT(*) FROM attachments').then(r => r.rows[0].count)} fichiers)`);
       console.log("=".repeat(70));
     });
     
