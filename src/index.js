@@ -47,7 +47,7 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage: storage,
   limits: {
-    fileSize: 25 * 1024 * 1024,
+    fileSize: 25 * 1024 * 1024, // 25 Mo
   },
   fileFilter: (req, file, cb) => {
     if (req.path.includes('/profile')) {
@@ -213,7 +213,6 @@ const updateEmailStatus = async (emailId, status, details = {}) => {
     values.push(emailId);
     
     const query = `UPDATE emails SET ${updateFields.join(', ')} WHERE id = $${paramCount}`;
-    
     await dbPool.query(query, values);
     
     // Créer une notification pour cet événement
@@ -732,9 +731,9 @@ const sendEmailViaAPI = async (emailData) => {
     const response = await client.send(msg);
     const messageId = response[0].headers['x-message-id'];
     
-    // Mettre à jour le statut de l'email à 'sent'
+    // Mettre à jour le statut de l'email à 'sent' avec le message_id
     if (emailData.emailId) {
-      await updateEmailStatus(emailData.emailId, 'sent');
+      await updateEmailStatus(emailData.emailId, 'sent', { message_id: messageId });
     }
     
     return {
@@ -936,7 +935,9 @@ app.use(cors({
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use('/assets', express.static(path.join(__dirname, 'assets')));
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Exposition sécurisée : seul le dossier des photos de profil est accessible publiquement
+app.use('/uploads/profiles', express.static(path.join(__dirname, 'uploads', 'profiles')));
 
 app.use((req, res, next) => {
   const start = Date.now();
@@ -1625,9 +1626,6 @@ app.post("/api/emails/send", authenticateToken, (req, res) => {
         `UPDATE emails SET sendgrid_message_id = $1 WHERE id = $2`,
         [result.messageId, emailId]
       );
-      
-      // Créer une notification initiale
-      await createDeliveryNotification(emailId, 'sent', { message_id: result.messageId });
       
       console.log(`✅ EMAIL ENVOYÉ AVEC SUCCÈS en ${sendTime}ms`);
       console.log(`📧 Message ID: ${result.messageId || 'N/A'}`);
