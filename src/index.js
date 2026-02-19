@@ -760,6 +760,10 @@ const sendEmailViaAPI = async (emailData) => {
 
 // ===== FONCTIONS UTILITAIRES POUR LES PIÈCES JOINTES =====
 const processAttachments = async (files, emailId) => {
+  console.log(`processAttachments: traitement de ${files.length} fichier(s)`);
+for (const file of files) {
+    console.log(` - ${file.originalname} (${file.size} bytes)`);
+}
   const attachments = [];
   
   for (const file of files) {
@@ -1510,7 +1514,7 @@ app.post("/api/emails/send", authenticateToken, (req, res) => {
   uploadAttachments(req, res, async (err) => {
     const startTime = Date.now();
     const requestId = req.headers['x-request-id'] || Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
-    
+    console.log('req.files:', req.files ? req.files.map(f => ({ originalname: f.originalname, size: f.size })) : 'aucun fichier');
     console.log(`\n📧 ENVOI EMAIL [ID:${requestId}]`);
     
     if (err) {
