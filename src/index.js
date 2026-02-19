@@ -2059,6 +2059,39 @@ app.get("/api/emails/:id", authenticateToken, async (req, res) => {
   }
 });
 
+// ROUTE DELETE POUR SUPPRIMER UN EMAIL (AJOUTÉE)
+app.delete("/api/emails/:id", authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user_id = req.userId;
+
+    // Vérifier que l'email appartient à l'utilisateur
+    const checkResult = await dbPool.query(
+      'SELECT id FROM emails WHERE id = $1 AND user_id = $2',
+      [id, user_id]
+    );
+
+    if (checkResult.rows.length === 0) {
+      return res.status(404).json({ success: false, error: "Email non trouvé" });
+    }
+
+    // Supprimer l'email (les pièces jointes seront supprimées en cascade grâce à ON DELETE CASCADE)
+    await dbPool.query('DELETE FROM emails WHERE id = $1', [id]);
+
+    console.log(`🗑️ Email ${id} supprimé par l'utilisateur ${user_id}`);
+
+    res.json({
+      success: true,
+      message: "Email supprimé avec succès",
+      email_id: id
+    });
+
+  } catch (error) {
+    console.error("❌ Erreur suppression email:", error);
+    res.status(500).json({ success: false, error: "Erreur serveur lors de la suppression" });
+  }
+});
+
 // ===== ROUTES PIÈCES JOINTES =====
 app.get("/api/attachments/:id/download", authenticateToken, async (req, res) => {
   try {
