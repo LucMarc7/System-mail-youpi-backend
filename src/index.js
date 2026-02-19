@@ -760,16 +760,15 @@ const sendEmailViaAPI = async (emailData) => {
 
 // ===== FONCTIONS UTILITAIRES POUR LES PIÈCES JOINTES =====
 const processAttachments = async (files, emailId) => {
-  console.log(`processAttachments: traitement de ${files.length} fichier(s)`);
-for (const file of files) {
-    console.log(` - ${file.originalname} (${file.size} bytes)`);
-}
+  console.log(`processAttachments: début du traitement pour emailId ${emailId}, ${files.length} fichier(s)`);
   const attachments = [];
   
   for (const file of files) {
     try {
+      console.log(`Traitement du fichier: ${file.originalname}, taille: ${file.size}, chemin: ${file.path}`);
       const fileBuffer = fs.readFileSync(file.path);
       const base64Content = fileBuffer.toString('base64');
+      console.log(`Fichier lu, taille base64: ${base64Content.length}`);
       
       const result = await dbPool.query(
         `INSERT INTO attachments 
@@ -788,6 +787,7 @@ for (const file of files) {
       );
       
       const attachmentId = result.rows[0].id;
+      console.log(`Pièce jointe enregistrée en base avec ID: ${attachmentId}`);
       
       attachments.push({
         content: base64Content,
@@ -797,16 +797,16 @@ for (const file of files) {
         content_id: attachmentId
       });
       
-      console.log(`📎 Pièce jointe sauvegardée: ${file.originalname} (${Math.round(file.size / 1024)} KB) - ID: ${attachmentId}`);
+      console.log(`✅ Pièce jointe préparée pour SendGrid: ${file.originalname}`);
       
     } catch (error) {
       console.error(`❌ Erreur traitement pièce jointe ${file.originalname}:`, error.message);
     }
   }
   
+  console.log(`processAttachments: ${attachments.length} pièce(s) jointe(s) préparée(s)`);
   return attachments;
 };
-
 const getAttachmentsByEmailId = async (emailId) => {
   try {
     const tableCheck = await dbPool.query(`
